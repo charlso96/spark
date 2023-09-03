@@ -294,6 +294,8 @@ class HadoopTableReader(
       case Some(filter) =>
         val fs = path.getFileSystem(hadoopConf)
         val filteredFiles = fs.listStatus(path, filter).map(_.getPath.toString)
+        logWarning("Hive Trace: Listing files under " + path.toString)
+        logWarning("Hive Trace: " + filteredFiles.mkString(","))
         filteredFiles.mkString(",")
       case None => path.toString
     }
