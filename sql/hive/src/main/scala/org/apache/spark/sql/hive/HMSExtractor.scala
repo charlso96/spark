@@ -17,53 +17,26 @@
 
 package org.apache.spark.sql.hive
 
-import java.io._
-import java.lang.reflect.{InvocationTargetException, UndeclaredThrowableException}
-import java.net.{URI, URL}
-import java.nio.file.Files
-import java.security.PrivilegedExceptionAction
-import java.text.ParseException
-import java.util.{ServiceLoader, UUID}
-import java.util.jar.JarInputStream
-import javax.ws.rs.core.UriBuilder
+import scala.collection.mutable.HashMap
+import scala.util.matching.Regex
 
-import scala.annotation.tailrec
-import scala.collection.JavaConverters._
-import scala.collection.mutable.{ArrayBuffer, HashMap}
-import scala.util.{Properties, Try}
-
-import org.apache.commons.lang3.StringUtils
-import org.apache.hadoop.conf.{Configuration => HadoopConfiguration}
-import org.apache.hadoop.fs.{FileSystem, Path}
-import org.apache.hadoop.security.UserGroupInformation
-import org.apache.hadoop.yarn.conf.YarnConfiguration
-import org.apache.ivy.Ivy
-import org.apache.ivy.core.LogOptions
-import org.apache.ivy.core.module.descriptor._
-import org.apache.ivy.core.module.id.{ArtifactId, ModuleId, ModuleRevisionId}
-import org.apache.ivy.core.report.ResolveReport
-import org.apache.ivy.core.resolve.ResolveOptions
-import org.apache.ivy.core.retrieve.RetrieveOptions
-import org.apache.ivy.core.settings.IvySettings
-import org.apache.ivy.plugins.matcher.GlobPatternMatcher
-import org.apache.ivy.plugins.repository.file.FileRepository
-import org.apache.ivy.plugins.resolver.{ChainResolver, FileSystemResolver, IBiblioResolver}
+import org.apache.hadoop.fs.FileStatus
+import org.apache.hadoop.fs.Path
+import org.json4s.NoTypeHints
+import org.json4s.jackson.Serialization
 
 import org.apache.spark.SparkConf
-import org.apache.spark.api.r.RUtils
 import org.apache.spark.deploy.SparkHadoopUtil
-import org.apache.spark.deploy.rest._
 import org.apache.spark.internal.Logging
-import org.apache.spark.internal.config._
-import org.apache.spark.internal.config.UI._
-import org.apache.spark.launcher.SparkLauncher
-import org.apache.spark.launcher.SparkSubmitArgumentsParser
-import org.apache.spark.network.util.JavaUtils
-import org.apache.spark.sql.hive.HiveUtils
+import org.apache.spark.sql.catalyst.catalog.CatalogTable
+import org.apache.spark.sql.catalyst.catalog.CatalogTablePartition
 import org.apache.spark.util._
+
+
 
 private[hive] class HMSClientExt(args: Seq[String], env: Map[String, String] = sys.env)
   extends Logging {
+  private implicit val formats = Serialization.formats(NoTypeHints)
   var propertiesFile: String = null
   var verbose: Boolean = false
   val sparkProperties: HashMap[String, String] = new HashMap[String, String]()
@@ -94,7 +67,7 @@ private[hive] class HMSClientExt(args: Seq[String], env: Map[String, String] = s
 
   private val hadoopConf = SparkHadoopUtil.get.newConfiguration(sparkConf)
 
-  val client = HiveUtils.newClientForMetadata(sparkConf, hadoopConf)
+  lazy val client = new HiveExternalCatalog(sparkConf, hadoopConf)
 
   private def mergeDefaultSparkProperties(): Unit = {
     // Use common defaults file, if not specified by user
@@ -123,21 +96,102 @@ private[hive] class HMSClientExt(args: Seq[String], env: Map[String, String] = s
     }
   }
 
+  def getTable(db_name : String, table_name : String) : CatalogTable = {
+    client.getTable(db_name, table_name)
+  }
+
+  def getDBJson(db_name : String) : String = {
+    val database = client.getDatabase(db_name)
+    val db_prefix = "{\"obj_type\" : \"database\","
+    val json_brace : Regex = "\\{".r
+    json_brace.replaceFirstIn(Serialization.write(database)(formats), db_prefix)
+  }
+
+  def getTableJson(db_name : String, table_name : String) : String = {
+    val table = client.getTable(db_name, table_name)
+    val table_prefix = "{\"obj_type\" : \"table\","
+    val json_brace : Regex = "\\{".r
+    json_brace.replaceFirstIn(Serialization.write(table)(formats), table_prefix)
+  }
+
+  def getPartitionJson(partition : CatalogTablePartition) : String = {
+    val partition_prefix = "{\"obj_type\" : \"partition\","
+    val json_brace : Regex = "\\{".r
+    json_brace.replaceFirstIn(Serialization.write(partition)(formats), partition_prefix)
+  }
+
+  def getFileJson(file : FileStatus) : String = {
+    "{\"obj_type\" : \"file\", \"path\" : \"" + file.getPath.toString +
+      "\", \"size\" : " + file.getLen.toString + ", \"modificationTime\" : " +
+      file.getModificationTime.toString + "}"
+  }
+
+  def listTables(db_name : String) : Seq[String] = {
+    client.listTables(db_name)
+  }
+
+  def listPartitions(db_name : String, table_name : String) : Seq[CatalogTablePartition] = {
+    client.listPartitions(db_name, table_name, None)
+  }
+
+  def listFiles(table : CatalogTable) : Seq[FileStatus] = {
+    val table_path = new Path(table.location)
+    val fs = table_path.getFileSystem(hadoopConf)
+    fs.listStatus(table_path).toSeq
+  }
+
+  def listFiles(partition : CatalogTablePartition): Seq[FileStatus] = {
+    val partition_path = new Path(partition.location)
+    val fs = partition_path.getFileSystem(hadoopConf)
+    fs.listStatus(partition_path).toSeq
+  }
+
 }
 /**
  * This entry point is used by the launcher library to start in-process Spark applications.
  */
 private[spark] object HMSExtractor extends Logging {
+
   def main(args: Array[String]): Unit = {
+
     val hms_ext = new HMSClientExt(args.toSeq)
     /**
      * OK, just get a single table for now...
      * OK, don't worry about statistics for now...
      */
-    val database = hms_ext.client.getDatabase(args(0))
-    val tables = hms_ext.client.getTable(args(0), args(1))
+    val db_name = args(0)
+    val db_json = hms_ext.getDBJson(db_name)
+    printf("%s \n", db_json)
 
+    val table_names = hms_ext.listTables(db_name)
+    table_names.foreach { table_name =>
+      val table_json = hms_ext.getTableJson(db_name, table_name)
+      printf("%s \n", table_json)
+
+      val table = hms_ext.getTable(db_name, table_name)
+      if (table.partitionColumnNames.isEmpty) {
+        val files = hms_ext.listFiles(table)
+        files.foreach { file =>
+          val file_json = hms_ext.getFileJson(file)
+          printf("%s \n", file_json)
+        }
+      }
+      else {
+        val partitions = hms_ext.listPartitions(db_name, table_name)
+        partitions.foreach { partition =>
+          val partition_json = hms_ext.getPartitionJson(partition)
+          printf("%s \n", partition_json)
+          val files = hms_ext.listFiles(partition)
+          files.foreach { file =>
+            val file_json = hms_ext.getFileJson(file)
+            printf("%s \n", file_json)
+          }
+        }
+      }
+    }
 
   }
+
+
 
 }
