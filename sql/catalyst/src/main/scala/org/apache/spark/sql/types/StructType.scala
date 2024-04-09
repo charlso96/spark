@@ -416,7 +416,7 @@ case class StructType(fields: Array[StructField]) extends DataType with Seq[Stru
     fields.foreach(field => field.buildFormattedString(prefix, stringConcat, maxDepth))
   }
 
-  override private[sql] def jsonValue =
+  override private[spark] def jsonValue =
     ("type" -> typeName) ~
       ("fields" -> map(_.jsonValue))
 

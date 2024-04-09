@@ -80,7 +80,7 @@ case class ArrayType(elementType: DataType, containsNull: Boolean) extends DataT
     }
   }
 
-  override private[sql] def jsonValue =
+  override private[spark] def jsonValue =
     ("type" -> typeName) ~
       ("elementType" -> elementType.jsonValue) ~
       ("containsNull" -> containsNull)

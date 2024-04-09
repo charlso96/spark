@@ -132,7 +132,7 @@ object Metadata {
   }
 
   /** Creates a Metadata instance from JSON AST. */
-  private[sql] def fromJObject(jObj: JObject): Metadata = {
+  def fromJObject(jObj: JObject): Metadata = {
     val builder = new MetadataBuilder
     jObj.obj.foreach {
       case (key, JInt(value)) =>
@@ -175,7 +175,7 @@ object Metadata {
   }
 
   /** Converts to JSON AST. */
-  private def toJsonValue(obj: Any): JValue = {
+  def toJsonValue(obj: Any): JValue = {
     obj match {
       case map: Map[_, _] =>
         val fields = map.toList.map { case (k, v) => (k.toString, toJsonValue(v)) }

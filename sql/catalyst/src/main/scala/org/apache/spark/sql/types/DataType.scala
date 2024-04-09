@@ -74,7 +74,7 @@ abstract class DataType extends AbstractDataType {
       .toLowerCase(Locale.ROOT)
   }
 
-  private[sql] def jsonValue: JValue = typeName
+  private[spark] def jsonValue: JValue = typeName
 
   /** The compact JSON representation of this data type. */
   def json: String = compact(render(jsonValue))
@@ -217,7 +217,7 @@ object DataType {
   }
 
   // NOTE: Map fields must be sorted in alphabetical order to keep consistent with the Python side.
-  private[sql] def parseDataType(json: JValue): DataType = json match {
+  def parseDataType(json: JValue): DataType = json match {
     case JString(name) =>
       nameToType(name)
 

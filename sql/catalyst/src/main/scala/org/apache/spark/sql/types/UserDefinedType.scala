@@ -58,7 +58,7 @@ abstract class UserDefinedType[UserType >: Null] extends DataType with Serializa
   /** Convert a SQL datum to the user type */
   def deserialize(datum: Any): UserType
 
-  override private[sql] def jsonValue: JValue = {
+  override private[spark] def jsonValue: JValue = {
     ("type" -> "udt") ~
       ("class" -> this.getClass.getName) ~
       ("pyClass" -> pyUDT) ~
@@ -124,7 +124,7 @@ private[sql] class PythonUserDefinedType(
   /* There is no Java class for Python UDT */
   override def userClass: java.lang.Class[Any] = null
 
-  override private[sql] def jsonValue: JValue = {
+  override private[spark] def jsonValue: JValue = {
     ("type" -> "udt") ~
       ("pyClass" -> pyUDT) ~
       ("serializedClass" -> serializedPyClass) ~

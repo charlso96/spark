@@ -55,7 +55,7 @@ case class MapType(
     }
   }
 
-  override private[sql] def jsonValue: JValue =
+  override private[spark] def jsonValue: JValue =
     ("type" -> typeName) ~
       ("keyType" -> keyType.jsonValue) ~
       ("valueType" -> valueType.jsonValue) ~
