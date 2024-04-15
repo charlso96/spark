@@ -1,0 +1,406 @@
+syntax = "proto3";
+
+package org.apache.spark.tree.grpc;
+
+enum TxnMode {
+    TXN_MODE_READ_ONLY = 0;
+    TXN_MODE_READ_WRITE = 1;
+}
+
+enum WriteType {
+    WRITE_TYPE_ADD = 0;
+    WRITE_TYPE_REMOVE = 1;
+    WRITE_TYPE_MERGE =  2;
+    WRITE_TYPE_UPDATE = 3;
+}
+
+/*
+ * List of default types + OTHER for extended types.
+ * TODO:    1. Potentially extend the default types supported.
+ *          2. Rename to ObjTypeName.
+ */
+enum ObjTypeName {
+    OBJ_TYPE_NAME_DATABASE = 0;
+    OBJ_TYPE_NAME_TABLE = 1;
+    OBJ_TYPE_NAME_PARTITION = 2;
+    OBJ_TYPE_NAME_FILE_OBJECT = 3;
+    OBJ_TYPE_NAME_OTHER = 4;
+}
+
+enum Wildcard {
+    // match any object in the given level
+    WILDCARD_ANY = 0;
+}
+
+/*
+ * type of unary/binary operators for ExprOp parse tree nodes
+ */
+enum ExprOpType {
+    EXPR_OP_TYPE_LESS = 0;
+    EXPR_OP_TYPE_GREATER = 1;
+    EXPR_OP_TYPE_EQUALS = 2;
+    EXPR_OP_TYPE_LESS_EQUALS = 3;
+    EXPR_OP_TYPE_GREATER_EQUALS = 4;
+    EXPR_OP_TYPE_NOT_EQUALS = 5;
+    EXPR_OP_TYPE_PLUS = 6;
+    EXPR_OP_TYPE_MINUS = 7;
+    EXPR_OP_TYPE_MULT = 8;
+    EXPR_OP_TYPE_DIV = 9;
+    EXPR_OP_TYPE_OTHER = 10;
+}
+
+/*
+ * type of boolean operators for ExprBool parse tree nodes
+ */
+enum ExprBoolType {
+    EXPR_BOOL_TYPE_OR = 0;
+    EXPR_BOOL_TYPE_AND = 1;
+    EXPR_BOOL_TYPE_NOT = 2;
+}
+
+/*
+ * type of constant for ExprConst parse tree nodes
+ */
+enum ExprConstType {
+    EXPR_CONST_TYPE_STRING = 0;
+    EXPR_CONST_TYPE_INT = 1;
+    EXPR_CONST_TYPE_LONG = 2;
+    EXPR_CONST_TYPE_DOUBLE = 3;
+    EXPR_CONST_TYPE_BOOLEAN = 4;
+    EXPR_CONST_TYPE_DATE = 5;
+    EXPR_CONST_TYPE_NULL = 6;
+}
+
+/*
+ * a field has a name and the corresponding value, if absent, is
+ * considered NULL
+ */
+message Field {
+    string field_name = 1;
+    optional string field_value = 2;
+}
+
+/*
+ * field definition has field name and the corresponding
+ * definition, which is required.
+ */
+message FieldDef {
+    string field_name = 1;
+    // Potentially change this to enum.
+    string field_def = 2;
+}
+
+/*
+ * an extended typename has an extension if obj_type_name is OTHER
+ */
+message ExtObjTypeName {
+    ObjTypeName obj_type_name = 1;
+    optional string extension = 2;
+}
+
+/*
+ * A type definition has a extended type name and a list of field
+ * definitions.
+ * TODO(LATER): Add more information to parse the type.
+ */
+message ObjTypeDef {
+    ExtObjTypeName ext_obj_type_name = 1;
+    repeated FieldDef field_defs = 2;
+}
+
+/*
+ * Children consists of their extended type name and list of oids.
+ */
+message Children {
+    ExtObjTypeName ext_obj_type_name = 1;
+    repeated int64 oids = 2;
+}
+
+/*
+ * When we use OCC for concurrency control, we need to specify the
+ * delta/change of the object, which is change (merge, update) in the object
+ * attributes, addition, or removal of the object. parse tree can be
+ * optionally selected for removal as we still do not have a parser for path
+ * expression...
+ * write_values is the actual delta or value of the object. trigger is a stored
+ * procedure that has to be execute upon writing the object.
+ *
+ * TODO: remove parse_tree option after building a parser.
+ */
+message Write {
+    WriteType type = 1;
+    bool is_leaf = 2;
+    bytes write_value = 3;
+    optional string trigger = 4;
+    repeated string args = 5;
+    oneof path {
+        PathExpr parse_tree = 6;
+        string path_str = 7;
+    }
+}
+
+
+/*
+ * Parse tree representation of the query path expression.
+ * Path experession is a list of predicates, followed by an
+ * optional one. vid is optional and if absent, latest version
+ * is used
+ */
+message PathExpr {
+    repeated Predicate preds = 1;
+    optional ExprNode optional_pred = 2;
+
+}
+
+/*
+ * A predicate is either an expression, oid, or a wildcard.
+ */
+message Predicate {
+    oneof pred {
+        ExprNode expr_node = 1;
+        string oid = 2;
+        Wildcard wildcard = 3;
+    }
+}
+
+/*
+ * Expression node where the highest level operator is binary/unary.
+ * Left is absent if the operator is unary.
+ */
+message ExprOp {
+    ExprOpType op_type = 1;
+    ExprNode right = 2;
+    optional ExprNode left = 3;
+}
+
+/*
+ * Expression node where the highest level operator is a boolean
+ * operator.
+ */
+message ExprBool {
+    ExprBoolType op_type = 1;
+    repeated ExprNode args = 2;
+}
+
+/*
+ * Expression node that is a constant.
+ */
+message ExprConst {
+    ExprConstType const_type = 1;
+    oneof value {
+        string string_val = 2;
+        int32 int32_val = 3;
+        int64 int64_val = 4;
+        double double_val = 5;
+        bool bool_val = 6;
+    }
+}
+
+/*
+ * Expression node that is a field reference.
+ */
+message ExprFieldRef {
+    repeated string field_refs = 1;
+}
+
+/*
+ * General expression node.
+ */
+message ExprNode {
+    oneof node {
+        ExprOp expr_op = 1;
+        ExprBool expr_bool = 2;
+        ExprConst expr_const = 3;
+        ExprFieldRef expr_field_ref = 4;
+    }
+}
+
+/*
+ * Start transaction in either READ or READ_WRITE mode.
+ * TODO txn_mode is ignored for now, will support READ only txn in the future
+ */
+message StartTxnRequest {
+    TxnMode txn_mode = 1;
+}
+
+/*
+ * Whether operation was successful and the vid of the version at which
+ * the transaction is to be performed and txn_id of the txn object.
+ */
+message StartTxnResponse {
+    bool success = 1;
+    uint64 vid = 2;
+    optional uint64 txn_id = 3;
+}
+
+/*
+ * Path of the object to take a snapshot of. Name is the name of the
+ * snapshot. If vid is not specified, the latest version is used.
+ */
+message SnapshotRequest {
+    string path = 1;
+    string name = 2;
+    optional uint64 vid = 3;
+}
+
+/*
+ * Whether the operation was successful and the vid of the object,
+ * of which snapshot was created.
+ */
+message SnapshotResponse {
+    bool success = 1;
+    uint64 vid = 2;
+}
+
+/*
+ * Source and destination paths of the object to be cloned. If
+ * vid is not given, the latest version is used.
+ */
+message CloneRequest {
+    string src_path = 1;
+    optional uint64 vid = 3;
+}
+
+/*
+ * Whether the operation was successful and the vid of the cloned
+ * object.
+ */
+message CloneResponse {
+    bool success = 1;
+    string dest_path = 2;
+    uint64 vid = 3;
+}
+
+/*
+ * Path of the object for which garbage is to be collected.
+ */
+message GetGarbageRequest {
+    string path = 1;
+}
+
+/*
+ * Leaf objects that no longer belong to any active version of
+ * inner objects
+ */
+message GetGarbageResponse {
+    repeated bytes garbage = 1;
+}
+
+/*
+ * Physical ID of leaf objects to be deleted.
+ */
+message ClearGarbageRequest {
+    repeated int64 pids = 1;
+}
+
+/*
+ * Whether leaf objects were safely deleted.
+ */
+message ClearGarbageResponse {
+    bool success = 1;
+}
+
+/*
+ * Type definition, defined by the caller/user.
+ */
+message DefineTypeRequest {
+    ObjTypeDef type_def  = 1;
+}
+
+/*
+ * Whether type was successfully defined.
+ */
+message DefineTypeResponse {
+    bool success = 1;
+}
+
+/*
+ * Query is either in a parse tree or string form.
+ * base specifies whether only base objects are to be returned
+ */
+message ExecuteQueryRequest {
+    bool base_only = 1;
+    // vid is ignored if txn_id is set and valid
+    optional uint64 vid = 2;
+    optional uint64 txn_id = 3;
+    optional uint32 return_type = 4;
+    oneof query {
+        PathExpr parse_tree = 5;
+        string query_str = 6;
+    }
+
+}
+
+/*
+ * Query result is either a set of inner objects, leaf objects, or
+ * base objects.
+    */
+message ExecuteQueryResponse {
+    bool leaf_obj = 1;
+    bool base_only = 2;
+    uint64 vid = 3;
+    bytes obj_list = 4;
+    optional bool abort = 5;
+}
+
+/*
+ * Default concurrency control mechanism is OCC for now.
+ */
+message CommitRequest {
+    uint64 txn_id = 1;
+    repeated Write write_set = 2;
+}
+
+/*
+ * Whether commit was succesful.
+ */
+message CommitResponse {
+    bool success = 1;
+}
+
+/*
+ * Default concurrency control mechanism is OCC for now.
+ */
+message PreCommitRequest {
+    uint64 txn_id = 1;
+    repeated Write write_set = 2;
+}
+
+/*
+ * Whether precommit was succesful.
+ */
+message PreCommitResponse {
+    bool success = 1;
+}
+
+/*
+ * Each message contains multiple objects
+ */
+message BulkLoadRequest {
+    repeated bytes obj_list = 1;
+}
+
+/*
+ * The response informs whether the bulkload operation was successful and the vid of the operation.
+ * Otherwise, the list of error messages (e.g. parents missing)
+ */
+message BulkLoadResponse {
+	bool success = 1;
+	uint64 vid = 2;
+	repeated string err = 3;
+}
+
+service GRPCCatalog {
+    rpc StartTxn(StartTxnRequest) returns (StartTxnResponse);
+    rpc Snapshot(SnapshotRequest) returns (SnapshotResponse);
+    rpc Clone(CloneRequest) returns (CloneResponse);
+    rpc GetGarbage(GetGarbageRequest) returns (GetGarbageResponse);
+    rpc ClearGarbage(ClearGarbageRequest) returns (ClearGarbageResponse);
+    rpc DefineType(DefineTypeRequest) returns (DefineTypeResponse);
+    rpc ExecuteQuery(ExecuteQueryRequest) returns (stream ExecuteQueryResponse);
+    rpc Commit(CommitRequest) returns (CommitResponse);
+    rpc PreCommit(PreCommitRequest) returns (PreCommitResponse);
+    rpc BulkLoad(stream BulkLoadRequest) returns (BulkLoadResponse);
+}
+
+

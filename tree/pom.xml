@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ Licensed to the Apache Software Foundation (ASF) under one or more
+  ~ contributor license agreements.  See the NOTICE file distributed with
+  ~ this work for additional information regarding copyright ownership.
+  ~ The ASF licenses this file to You under the Apache License, Version 2.0
+  ~ (the "License"); you may not use this file except in compliance with
+  ~ the License.  You may obtain a copy of the License at
+  ~
+  ~    http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+  -->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<modelVersion>4.0.0</modelVersion>
+<parent>
+    <groupId>org.apache.spark</groupId>
+    <artifactId>spark-parent_2.12</artifactId>
+    <version>3.4.2-SNAPSHOT</version>
+    <relativePath>../pom.xml</relativePath>
+</parent>
+
+<artifactId>tree_2.12</artifactId>
+<properties>
+    <sbt.project.name>tree</sbt.project.name>
+    <io.grpc.version>1.47.0</io.grpc.version>
+    <tomcat.annotations.api.version>6.0.53</tomcat.annotations.api.version>
+</properties>
+<packaging>jar</packaging>
+<name>Spark Tree</name>
+<url>https://spark.apache.org/</url>
+
+<dependencies>
+    <dependency>
+        <groupId>org.scalacheck</groupId>
+        <artifactId>scalacheck_${scala.binary.version}</artifactId>
+        <scope>test</scope>
+    </dependency>
+    <!-- #if scala-2.13 --><!--
+    <dependency>
+      <groupId>org.scala-lang.modules</groupId>
+      <artifactId>scala-parallel-collections_${scala.binary.version}</artifactId>
+    </dependency>
+    --><!-- #endif scala-2.13 -->
+    <dependency>
+        <groupId>com.google.protobuf</groupId>
+        <artifactId>protobuf-java</artifactId>
+        <version>${protobuf.version}</version>
+    </dependency>
+    <dependency>
+        <groupId>io.grpc</groupId>
+        <artifactId>grpc-netty</artifactId>
+        <version>${io.grpc.version}</version>
+    </dependency>
+    <dependency>
+        <groupId>io.grpc</groupId>
+        <artifactId>grpc-protobuf</artifactId>
+        <version>${io.grpc.version}</version>
+    </dependency>
+    <dependency>
+        <groupId>io.grpc</groupId>
+        <artifactId>grpc-services</artifactId>
+        <version>${io.grpc.version}</version>
+    </dependency>
+    <dependency>
+        <groupId>io.grpc</groupId>
+        <artifactId>grpc-stub</artifactId>
+        <version>${io.grpc.version}</version>
+    </dependency>
+    <dependency>
+        <groupId>io.netty</groupId>
+        <artifactId>netty-codec-http2</artifactId>
+        <version>${netty.version}</version>
+        <scope>provided</scope>
+    </dependency>
+    <dependency>
+        <groupId>io.netty</groupId>
+        <artifactId>netty-handler-proxy</artifactId>
+        <version>${netty.version}</version>
+        <scope>provided</scope>
+    </dependency>
+    <dependency>
+        <groupId>io.netty</groupId>
+        <artifactId>netty-transport-native-unix-common</artifactId>
+        <version>${netty.version}</version>
+        <scope>provided</scope>
+    </dependency>
+    <dependency> <!-- necessary for Java 9+ -->
+        <groupId>org.apache.tomcat</groupId>
+        <artifactId>annotations-api</artifactId>
+        <version>${tomcat.annotations.api.version}</version>
+        <scope>provided</scope>
+    </dependency>
+    <dependency>
+        <groupId>io.grpc</groupId>
+        <artifactId>grpc-api</artifactId>
+        <version>1.56.0</version>
+        <scope>compile</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>mongo-java-driver</artifactId>
+        <version>3.12.14</version>
+    </dependency>
+    <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>bson</artifactId>
+        <version>4.8.2</version>
+    </dependency>
+<!--    <dependency>-->
+<!--        <groupId>org.apache.spark</groupId>-->
+<!--        <artifactId>spark-core_${scala.binary.version}</artifactId>-->
+<!--        <version>${project.version}</version>-->
+<!--    </dependency>-->
+</dependencies>
+<!--<build>-->
+<!--    <outputDirectory>target/scala-${scala.binary.version}/classes</outputDirectory>-->
+<!--    <plugins>-->
+<!--        <plugin>-->
+<!--            <groupId>org.apache.maven.plugins</groupId>-->
+<!--            <artifactId>maven-shade-plugin</artifactId>-->
+<!--            <configuration>-->
+<!--                <shadedArtifactAttached>false</shadedArtifactAttached>-->
+<!--                <shadeTestJar>true</shadeTestJar>-->
+<!--                <artifactSet>-->
+<!--                    <includes>-->
+<!--                        <include>com.google.protobuf:*</include>-->
+<!--                    </includes>-->
+<!--                </artifactSet>-->
+<!--                <relocations>-->
+<!--                    <relocation>-->
+<!--                        <pattern>com.google.protobuf</pattern>-->
+<!--                        <shadedPattern>${spark.shade.packageName}.spark_protobuf.protobuf</shadedPattern>-->
+<!--                        <includes>-->
+<!--                            <include>com.google.protobuf.**</include>-->
+<!--                        </includes>-->
+<!--                    </relocation>-->
+<!--                </relocations>-->
+<!--                <filters>-->
+<!--                    <filter>-->
+<!--                        <artifact>*:*</artifact>-->
+<!--                        <excludes>-->
+<!--                            <exclude>google/protobuf/**</exclude>-->
+<!--                        </excludes>-->
+<!--                    </filter>-->
+<!--                </filters>-->
+<!--            </configuration>-->
+<!--        </plugin>-->
+<!--    </plugins>-->
+<!--</build>-->
+
+
+
+<build>
+    <extensions>
+        <extension>
+            <groupId>kr.motd.maven</groupId>
+            <artifactId>os-maven-plugin</artifactId>
+            <version>1.6.2</version>
+        </extension>
+    </extensions>
+    <plugins>
+        <!-- Add protobuf-maven-plugin and provide ScalaPB as a code generation plugin -->
+        <plugin>
+            <groupId>org.xolstice.maven.plugins</groupId>
+            <artifactId>protobuf-maven-plugin</artifactId>
+            <version>0.6.1</version>
+            <configuration>
+                <protocArtifact>com.google.protobuf:protoc:${protobuf.version}:exe:${os.detected.classifier}</protocArtifact>
+                <pluginId>grpc-java</pluginId>
+                <pluginArtifact>io.grpc:protoc-gen-grpc-java:${io.grpc.version}:exe:${os.detected.classifier}</pluginArtifact>
+                <protoSourceRoot>src/main/proto</protoSourceRoot>
+<!--                <outputDirectory>src/main/java</outputDirectory>-->
+            </configuration>
+            <executions>
+                <execution>
+                    <goals>
+                        <goal>compile</goal>
+                        <goal>compile-custom</goal>
+                    </goals>
+                </execution>
+            </executions>
+        </plugin>
+
+
+    </plugins>
+</build>
+
+</project>
