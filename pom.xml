@@ -91,6 +91,7 @@
     <module>sql/catalyst</module>
     <module>sql/core</module>
     <module>sql/hive</module>
+    <module>tree</module>
     <module>assembly</module>
     <module>examples</module>
     <module>repl</module>
@@ -104,6 +105,7 @@
     <module>connector/connect/common</module>
     <module>connector/connect/client/jvm</module>
     <module>connector/protobuf</module>
+
     <!-- See additional modules enabled by profiles below -->
   </modules>
 

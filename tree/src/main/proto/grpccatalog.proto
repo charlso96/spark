@@ -1,6 +1,8 @@
 syntax = "proto3";
 
-package org.apache.spark.tree.grpc;
+/*
+ * package org.apache.spark.tree.grpc;
+ */
 
 enum TxnMode {
     TXN_MODE_READ_ONLY = 0;

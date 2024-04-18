@@ -15,46 +15,50 @@
  * limitations under the License.
  */
 
-package org.apache.spark.tree.grpc
+package org.apache.spark.tree
 
-import scala.collection.Seq
-import scala.collection.mutable.ArrayBuffer
+import java.net.URI
 import java.nio.ByteBuffer
+
+import scala.collection.mutable.ArrayBuffer
+
+import io.grpc.ManagedChannelBuilder
+import org.bson.RawBsonDocument
+import org.bson.json.JsonMode
+import org.bson.json.JsonWriterSettings
 import org.json4s.CustomSerializer
 import org.json4s.JsonAST.JNull
 import org.json4s.JsonAST.JObject
 import org.json4s.JsonAST.JString
 import org.json4s.NoTypeHints
-import org.json4s.jackson.JsonMethods._
 import org.json4s.jackson.Serialization
-import org.json4s.jackson.Serialization.{read, write}
-import io.grpc.ManagedChannel
-import io.grpc.ManagedChannelBuilder
-import org.bson.RawBsonDocument
-import org.bson.json.JsonMode
-import org.bson.json.JsonWriterSettings
+import org.json4s.jackson.Serialization.read
+
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.catalog._
 import org.apache.spark.sql.types.{DataType, Metadata, StructType}
-import org.apache.spark.tree.grpc.Catalog._
-import org.json4s.DoubleJsonFormats.GenericFormat
-import org.json4s.Formats.read
+import org.apache.spark.tree.grpc.Grpccatalog
+import org.apache.spark.tree.grpc.Grpccatalog._
+import org.apache.spark.tree.grpc.GRPCCatalogGrpc
 
-import java.net.URI
 private[spark] class TreeExternalCatalog extends Logging {
   private implicit val formats = Serialization.formats(NoTypeHints) + new HiveURISerializer +
     new HiveDataTypeSerializer + new HiveMetadataSerializer + new HiveStructTypeSerializer
-  private val channel_builder = ManagedChannelBuilder.forAddress("localhost", 9876).usePlaintext()
-  private val channel = channel_builder.asInstanceOf[ManagedChannelBuilder[_]]build()
+  private val channel = ManagedChannelBuilder.forAddress("localhost", 9876).usePlaintext().
+    asInstanceOf[ManagedChannelBuilder[_]].build()
+  val catalog_stub: GRPCCatalogGrpc.GRPCCatalogBlockingStub =
+    GRPCCatalogGrpc.newBlockingStub(channel)
+  val json_writer_setting : JsonWriterSettings = JsonWriterSettings.builder().
+    outputMode(JsonMode.RELAXED).build()
 
-  lazy val catalog_stub = GRPCCatalogGrpc.newBlockingStub(channel)
   private class BufIterator(buf : Array[Byte]) {
-    private var elem_size_ = ByteBuffer.wrap(buf.slice(0, Integer.BYTES)).getInt
+    private var elem_size_ = ByteBuffer.wrap(buf.slice(0, Integer.BYTES)).
+      order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt
     private var data_idx_ = Integer.BYTES
     private var next_ = Integer.BYTES + elem_size_
     private var valid_ = false
 
-    if (next_ <= buf.length) {
+    if (next_ <= buf.size) {
       valid_ = true
     }
 
@@ -67,7 +71,8 @@ private[spark] class TreeExternalCatalog extends Logging {
         false
       }
       else {
-        elem_size_ = ByteBuffer.wrap(buf.slice(next_, next_ + Integer.BYTES)).getInt
+        elem_size_ = ByteBuffer.wrap(buf.slice(next_, next_ + Integer.BYTES)).
+          order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt()
         data_idx_ = next_ + Integer.BYTES
         next_ = data_idx_ + elem_size_
 
@@ -140,6 +145,7 @@ private[spark] class TreeExternalCatalog extends Logging {
       }
     )
   )
+
   def getDatabase(db: String): CatalogDatabase = {
     val query_request = ExecuteQueryRequest.newBuilder().setParseTree(PathExpr.newBuilder().
       addPreds(Predicate.newBuilder().setOid(db).build()).build()).setBaseOnly(true).
@@ -150,9 +156,12 @@ private[spark] class TreeExternalCatalog extends Logging {
       val response_buf = query_response.getObjList().toByteArray()
       val buf_iter = new BufIterator(response_buf)
       val json_str = new RawBsonDocument(response_buf, buf_iter.dataIdx(),
-        response_buf.size - buf_iter.dataIdx()).toJson(new JsonWriterSettings.Builder().
-        outputMode(JsonMode.RELAXED).build())
-        read[CatalogDatabase](json_str)
+        response_buf.size - buf_iter.dataIdx()).toJson(json_writer_setting)
+      // iterate over every query response
+      while (query_responses.hasNext) {
+        query_responses.next()
+      }
+      read[CatalogDatabase](json_str)
     }
     else {
       null
@@ -169,9 +178,11 @@ private[spark] class TreeExternalCatalog extends Logging {
       val response_buf = query_response.getObjList().toByteArray()
       val buf_iter = new BufIterator(response_buf)
       val json_str = new RawBsonDocument(response_buf, buf_iter.dataIdx(),
-        response_buf.size - buf_iter.dataIdx()).toJson(new JsonWriterSettings.Builder().
-        outputMode(JsonMode.RELAXED).build())
-        read[CatalogTable](json_str)
+        response_buf.size - buf_iter.dataIdx()).toJson(json_writer_setting)
+      while (query_responses.hasNext) {
+        query_responses.next()
+      }
+      read[CatalogTable](json_str)
     }
     else {
       null
@@ -180,18 +191,21 @@ private[spark] class TreeExternalCatalog extends Logging {
 
   def listTables(db: String): Seq[String] = {
     val query_request = ExecuteQueryRequest.newBuilder().setParseTree(PathExpr.newBuilder().
-      addPreds(Predicate.newBuilder().setOid(db)).addPreds(Predicate.newBuilder().
-      setWildcard(Catalog.Wildcard.WILDCARD_ANY).build())).setBaseOnly(true).setReturnType(1).
+      addPreds(Predicate.newBuilder().setOid(db).build()).addPreds(Predicate.newBuilder().
+      setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build())).setBaseOnly(true).setReturnType(1).
       build()
     val query_responses = catalog_stub.executeQuery(query_request)
     val tables = ArrayBuffer[String]()
     query_responses.forEachRemaining(response => {
       val response_buf = response.getObjList().toByteArray()
       val buf_iter = new BufIterator(response_buf)
-      val table_bson = new RawBsonDocument(response_buf, buf_iter.dataIdx(),
-        response_buf.size - buf_iter.dataIdx())
-      tables += table_bson.get("identifier").asInstanceOf[RawBsonDocument].get("table").asString().
-        getValue()
+      while (buf_iter.valid()) {
+        val table_bson = new RawBsonDocument(response_buf, buf_iter.dataIdx(),
+          response_buf.size - buf_iter.dataIdx())
+        tables += table_bson.get("identifier").asInstanceOf[RawBsonDocument].get("table").
+          asString().getValue()
+        buf_iter.next()
+      }
     })
     tables
   }
@@ -203,10 +217,10 @@ private[spark] class TreeExternalCatalog extends Logging {
 
     table.partitionColumnNames.foreach({ column_name =>
       path_expr_builder.addPreds(Predicate.newBuilder().
-        setWildcard(Catalog.Wildcard.WILDCARD_ANY).build())
+        setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build())
     })
     val query_request = ExecuteQueryRequest.newBuilder().setParseTree(path_expr_builder.
-      addPreds(Predicate.newBuilder().setWildcard(Catalog.Wildcard.WILDCARD_ANY).build()).build()).
+      addPreds(Predicate.newBuilder().setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build()).build()).
       setBaseOnly(true).setReturnType(2).build()
     val query_responses = catalog_stub.executeQuery(query_request)
     val files = ArrayBuffer[String]()
@@ -234,12 +248,12 @@ private[spark] class TreeExternalCatalog extends Logging {
       }
       else {
         path_expr_builder.addPreds(Predicate.newBuilder().
-          setWildcard(Catalog.Wildcard.WILDCARD_ANY).build())
+          setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build())
       }
     })
 
     val query_request = ExecuteQueryRequest.newBuilder().setParseTree(path_expr_builder.
-        addPreds(Predicate.newBuilder().setWildcard(Catalog.Wildcard.WILDCARD_ANY).build()).
+        addPreds(Predicate.newBuilder().setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build()).
         build()).setBaseOnly(true).setReturnType(2).build()
     val query_responses = catalog_stub.executeQuery(query_request)
     val files = ArrayBuffer[String]()
