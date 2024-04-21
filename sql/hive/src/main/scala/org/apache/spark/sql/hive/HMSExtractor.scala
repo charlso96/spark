@@ -20,7 +20,9 @@ package org.apache.spark.sql.hive
 import java.io.{File, FileWriter}
 import java.net.URI
 
+import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable.HashMap
+import scala.collection.mutable.Map
 import scala.util.matching.Regex
 
 import org.apache.hadoop.fs.FileStatus
@@ -40,7 +42,8 @@ import org.apache.spark.sql.types.{DataType, Metadata, StructType}
 import org.apache.spark.util._
 
 
-private[hive] class HMSClientExt(args: Seq[String], env: Map[String, String] = sys.env)
+private[hive] class HMSClientExt(args: Seq[String], env:
+  scala.collection.immutable.Map[String, String] = sys.env)
   extends Logging {
   private implicit val formats = Serialization.formats(NoTypeHints) + new HiveURISerializer +
     new HiveDataTypeSerializer + new HiveMetadataSerializer + new HiveStructTypeSerializer
@@ -208,32 +211,47 @@ private[hive] class HMSClientExt(args: Seq[String], env: Map[String, String] = s
 
   def getDBJson(db_name : String) : String = {
     val database = client.getDatabase(db_name)
-    val db_prefix = "{\"obj_type\" : \"database\","
+    val db_prefix = "{\"meta\": {\"paths\": [\"/" + db_name +
+      "\"], \"obj_kind\": 0}, \"val\": {\"obj_type\": \"database\", "
     val json_brace : Regex = "\\{".r
     val db_json = Serialization.write(database)
-    json_brace.replaceFirstIn(db_json, db_prefix)
-
+    json_brace.replaceFirstIn(db_json, db_prefix) + "}"
   }
 
-  def getTableJson(db_name : String, table_name : String) : String = {
-    val table = client.getTable(db_name, table_name)
-    val table_prefix = "{\"obj_type\" : \"table\","
+  def getTableJson(table : CatalogTable, obj_kind : Int) : String = {
+    val table_prefix = "{\"meta\": {\"paths\": [\"/" + table.identifier.database.get +
+      "/" + table.identifier.table + "\"], \"obj_kind\": " + obj_kind.toString +
+      "}, \"val\": {\"obj_type\": \"table\", "
     val json_brace : Regex = "\\{".r
     val table_json = Serialization.write(table)
-    json_brace.replaceFirstIn(table_json, table_prefix)
+    json_brace.replaceFirstIn(table_json, table_prefix) + "}"
   }
 
-  def getPartitionJson(partition : CatalogTablePartition) : String = {
-    val partition_prefix = "{\"obj_type\" : \"partition\","
+  def getPartitionJson(table : CatalogTable, partition :
+    CatalogTablePartition, obj_kind : Int) : String = {
+    val partition_prefix = "{\"meta\": {\"paths\": [\"/" + table.identifier.database.get +
+      "/" + table.identifier.table + getPartId(table, partition) + "\"], \"obj_kind\": " +
+      obj_kind.toString + "}," + "\"val\": {\"obj_type\": \"partition\", "
     val json_brace : Regex = "\\{".r
     val partition_json = Serialization.write(partition)
-    json_brace.replaceFirstIn(partition_json, partition_prefix)
+    json_brace.replaceFirstIn(partition_json, partition_prefix) + "}"
   }
 
-  def getFileJson(file : FileStatus) : String = {
-    "{\"obj_type\" : \"file\", \"path\" : \"" + file.getPath.toString +
-      "\", \"size\" : " + file.getLen.toString + ", \"modificationTime\" : " +
-      file.getModificationTime.toString + "}"
+  def getFileJson(table : CatalogTable, file : FileStatus) : String = {
+    "{\"meta\": {\"paths\": [\"/" + table.identifier.database.get + "/" +
+      table.identifier.table + getFileId(file) + "\"], \"obj_kind\": 2}, " +
+      "\"val\": {\"obj_type\": \"file\", \"path\": \"" + file.getPath.toString +
+      "\", \"size\": " + file.getLen.toString + ", \"modificationTime\": " +
+      file.getModificationTime.toString + "}}"
+  }
+  def getFileJson(table : CatalogTable, partition : CatalogTablePartition,
+                  file : FileStatus) : String = {
+    "{\"meta\": {\"paths\": [\"/" + table.identifier.database.get + "/" +
+    table.identifier.table + getPartId(table, partition) +
+    getFileId(file) + "\"], \"obj_kind\": 2}, " +
+    "\"val\": {\"obj_type\": \"file\", \"path\": \"" + file.getPath.toString +
+      "\", \"size\": " + file.getLen.toString + ", \"modificationTime\": " +
+      file.getModificationTime.toString + "}}"
   }
 
   def listTables(db_name : String) : Seq[String] = {
@@ -256,9 +274,24 @@ private[hive] class HMSClientExt(args: Seq[String], env: Map[String, String] = s
     fs.listStatus(partition_path).toSeq
   }
 
+  private def getPartId(table : CatalogTable, partition : CatalogTablePartition): String = {
+    var part_id = ""
+    table.partitionColumnNames.foreach { column_name =>
+      if (partition.spec.get(column_name).isDefined) {
+        part_id = part_id + "/" +  column_name + "=" + partition.spec.get(column_name).get
+      }
+    }
+    part_id
+  }
+
+  private def getFileId(file : FileStatus) : String = {
+    val file_path = file.getPath.toString
+    file_path.slice(file_path.lastIndexOf('/'), file_path.size)
+  }
+
 }
 /**
- * This entry point is used by the launcher library to start in-process Spark applications.
+ * Main function of the extractor
  */
 private[spark] object HMSExtractor extends Logging {
 
@@ -272,35 +305,93 @@ private[spark] object HMSExtractor extends Logging {
 
     val db_name = args(0)
     val file_writer = new FileWriter(new File(args(1)))
+    // write the root object first
+    file_writer.write("{\"meta\": {\"paths\": [\"/\"], \"obj_kind\": 0}, " +
+      "\"val\": {\"obj_type\": \"root\"}}\n")
+    // write the db object
     val db_json = hms_ext.getDBJson(db_name)
     file_writer.write(db_json + "\n")
 
     val table_names = hms_ext.listTables(db_name)
     table_names.foreach { table_name =>
-      val table_json = hms_ext.getTableJson(db_name, table_name)
-      file_writer.write(table_json + "\n")
-
       val table = hms_ext.getTable(db_name, table_name)
+      // non-partitioned table
       if (table.partitionColumnNames.isEmpty) {
+        val table_json = hms_ext.getTableJson(table, 1)
+        file_writer.write(table_json + "\n")
         val files = hms_ext.listFiles(table)
         files.foreach { file =>
-          val file_json = hms_ext.getFileJson(file)
+          val file_json = hms_ext.getFileJson(table, file)
           file_writer.write(file_json + "\n")
         }
       }
+      // partitioned table
       else {
+        val table_json = hms_ext.getTableJson(table, 0)
+        file_writer.write(table_json + "\n")
         val partitions = hms_ext.listPartitions(db_name, table_name)
+          .sortWith( compPartition(table.partitionColumnNames, _, _) )
+
+        val cur_part_vals = new ArrayBuffer[String]
+        table.partitionColumnNames.foreach { part_col =>
+          cur_part_vals += ""
+        }
+
         partitions.foreach { partition =>
-          val partition_json = hms_ext.getPartitionJson(partition)
+          var diff = false
+          // partition spec to build
+          val new_part_spec = Map.empty[String, String]
+          table.partitionColumnNames.indices.foreach { i =>
+            new_part_spec.put(table.partitionColumnNames(i), partition.
+              spec(table.partitionColumnNames(i)))
+            if (!diff &&
+              partition.spec(table.partitionColumnNames(i)) != cur_part_vals(i)) {
+              diff = true
+              table.partitionColumnNames.indices.slice(i,
+                table.partitionColumnNames.size - 1).foreach { j =>
+                new_part_spec.put(table.partitionColumnNames(j), partition.
+                  spec(table.partitionColumnNames(j)))
+                cur_part_vals(j) = partition.spec(table.partitionColumnNames(j))
+                val new_part = new CatalogTablePartition(new_part_spec.toMap,
+                  partition.storage, partition.parameters, partition.createTime,
+                  partition.lastAccessTime, partition.stats)
+                val partition_json = hms_ext.getPartitionJson(table, new_part, 0)
+                file_writer.write(partition_json + "\n")
+              }
+            }
+          }
+          cur_part_vals(table.partitionColumnNames.size - 1) = partition.spec(table.
+            partitionColumnNames(table.partitionColumnNames.size - 1))
+          val partition_json = hms_ext.getPartitionJson(table, partition, 1)
           file_writer.write(partition_json + "\n")
           val files = hms_ext.listFiles(partition)
           files.foreach { file =>
-            val file_json = hms_ext.getFileJson(file)
+            val file_json = hms_ext.getFileJson(table, partition, file)
             file_writer.write(file_json + "\n")
           }
         }
       }
     }
     file_writer.close()
+  }
+
+  private def compPartition(part_cols : Seq[String], part1 : CatalogTablePartition,
+                            part2 : CatalogTablePartition): Boolean = {
+    var comp_val = 0
+    part_cols.foreach { part_col =>
+      if (comp_val == 0 && part1.spec(part_col) < part2.spec(part_col)) {
+        comp_val = -1
+      }
+      else if (comp_val == 0 && part1.spec(part_col) > part2.spec(part_col)) {
+        comp_val = 1
+      }
+    }
+
+    if (comp_val == -1 || comp_val == 0) {
+      true
+    }
+    else {
+      false
+    }
   }
 }
