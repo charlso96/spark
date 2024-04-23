@@ -152,7 +152,6 @@
         <version>${tomcat.annotations.api.version}</version>
         <scope>provided</scope>
     </dependency>
-<!--    shade this later-->
     <dependency>
         <groupId>org.mongodb</groupId>
         <artifactId>bson</artifactId>

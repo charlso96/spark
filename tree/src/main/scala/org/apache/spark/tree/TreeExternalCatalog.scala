@@ -210,6 +210,35 @@ private[spark] class TreeExternalCatalog extends Logging {
     tables
   }
 
+  def listPartitions(db: String, table: String): Seq[CatalogTablePartition] = {
+    val table_obj = getTable(db, table)
+
+    val path_expr_builder = PathExpr.newBuilder().addPreds(Predicate.newBuilder().setOid(db).
+      build()).addPreds(Predicate.newBuilder().setOid(table).build())
+    // TODO take care of stats (only get partitions)
+    table_obj.partitionColumnNames.foreach { column_name =>
+      path_expr_builder.addPreds(Predicate.newBuilder().
+        setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build())
+    }
+
+    val query_request = ExecuteQueryRequest.newBuilder().setParseTree(
+      path_expr_builder.build()).setBaseOnly(true).setReturnType(1).build()
+    val query_responses = catalog_stub.executeQuery(query_request)
+    val partitions = ArrayBuffer[CatalogTablePartition]()
+    query_responses.forEachRemaining(response => {
+      val response_buf = response.getObjList().toByteArray()
+      val buf_iter = new BufIterator(response_buf)
+      while (buf_iter.valid()) {
+        val json_str = new RawBsonDocument(response_buf, buf_iter.dataIdx(),
+          response_buf.size - buf_iter.dataIdx()).toJson(json_writer_setting)
+        partitions += read[CatalogTablePartition](json_str)
+        buf_iter.next()
+      }
+    })
+    partitions
+
+  }
+
   def listFiles(table : CatalogTable) : Seq[String] = {
     val path_expr_builder = PathExpr.newBuilder().addPreds(Predicate.newBuilder().setOid(table.
       identifier.database.get).build()).addPreds(Predicate.newBuilder().
@@ -220,8 +249,8 @@ private[spark] class TreeExternalCatalog extends Logging {
         setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build())
     })
     val query_request = ExecuteQueryRequest.newBuilder().setParseTree(path_expr_builder.
-      addPreds(Predicate.newBuilder().setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build()).build()).
-      setBaseOnly(true).setReturnType(2).build()
+      addPreds(Predicate.newBuilder().setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build()).
+        build()).setBaseOnly(true).setReturnType(2).build()
     val query_responses = catalog_stub.executeQuery(query_request)
     val files = ArrayBuffer[String]()
     query_responses.forEachRemaining(response => {

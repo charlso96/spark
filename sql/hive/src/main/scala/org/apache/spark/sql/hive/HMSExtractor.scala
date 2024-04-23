@@ -42,7 +42,7 @@ import org.apache.spark.sql.types.{DataType, Metadata, StructType}
 import org.apache.spark.util._
 
 
-private[hive] class HMSClientExt(args: Seq[String], env:
+private[spark] class HMSClientExt(args: Seq[String], env:
   scala.collection.immutable.Map[String, String] = sys.env)
   extends Logging {
   private implicit val formats = Serialization.formats(NoTypeHints) + new HiveURISerializer +

@@ -105,8 +105,9 @@
     <module>connector/connect/common</module>
     <module>connector/connect/client/jvm</module>
     <module>connector/protobuf</module>
+    <module>exp</module>
 
-    <!-- See additional modules enabled by profiles below -->
+      <!-- See additional modules enabled by profiles below -->
   </modules>
 
   <properties>
@@ -942,6 +943,11 @@
       </dependency>
       <!-- Netty End -->
 
+      <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>bson</artifactId>
+        <version>4.11.2</version>
+      </dependency>
       <dependency>
         <groupId>org.apache.derby</groupId>
         <artifactId>derby</artifactId>
