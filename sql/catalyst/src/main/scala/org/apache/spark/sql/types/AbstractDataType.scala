@@ -121,7 +121,7 @@ protected[sql] object AnyDataType extends AbstractDataType with Serializable {
 /**
  * An internal type used to represent everything that is not null, UDTs, arrays, structs, and maps.
  */
-protected[sql] abstract class AtomicType extends DataType {
+protected[spark] abstract class AtomicType extends DataType {
   private[sql] type InternalType
   private[sql] val tag: TypeTag[InternalType]
   private[sql] val ordering: Ordering[InternalType]
@@ -176,7 +176,7 @@ private[spark] object NumericType extends AbstractDataType {
 }
 
 
-private[sql] object IntegralType extends AbstractDataType {
+private[spark] object IntegralType extends AbstractDataType {
   /**
    * Enables matching against IntegralType for expressions:
    * {{{
@@ -194,7 +194,7 @@ private[sql] object IntegralType extends AbstractDataType {
 }
 
 
-private[sql] abstract class IntegralType extends NumericType {
+private[spark] abstract class IntegralType extends NumericType {
   private[sql] val integral: Integral[InternalType]
 }
 
