@@ -1,4 +1,3 @@
-
 package org.apache.spark.tree.grpc;
 
 import static io.grpc.MethodDescriptor.generateFullMethodName;

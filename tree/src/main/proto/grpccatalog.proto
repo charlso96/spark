@@ -155,13 +155,12 @@ message PathExpr {
 }
 
 /*
- * A predicate is either an expression, oid, or a wildcard.
+ * A predicate is either an expression or a wildcard.
  */
 message Predicate {
     oneof pred {
         ExprNode expr_node = 1;
-        string oid = 2;
-        Wildcard wildcard = 3;
+        Wildcard wildcard = 2;
     }
 }
 
