@@ -377,7 +377,7 @@ private[spark] class TreeExternalCatalog extends Logging {
             case GreaterThan(_, _) => ExprOpType.EXPR_OP_TYPE_GREATER
             case GreaterThanOrEqual(_, _) => ExprOpType.EXPR_OP_TYPE_GREATER_EQUALS
           }
-          Some(constructBinaryExpr(attr.name, expr_op_type, value))
+          Some(constructBinaryExpr("obj_id", expr_op_type, value))
         }
         else {
           None
@@ -389,12 +389,12 @@ private[spark] class TreeExternalCatalog extends Logging {
           val expr_op_type = op match {
             case EqualTo(_, _) => ExprOpType.EXPR_OP_TYPE_EQUALS
             case EqualNullSafe(_, _) => ExprOpType.EXPR_OP_TYPE_EQUALS
-            case LessThan(_, _) => ExprOpType.EXPR_OP_TYPE_GREATER_EQUALS
-            case LessThanOrEqual(_, _) => ExprOpType.EXPR_OP_TYPE_GREATER
-            case GreaterThan(_, _) => ExprOpType.EXPR_OP_TYPE_LESS_EQUALS
-            case GreaterThanOrEqual(_, _) => ExprOpType.EXPR_OP_TYPE_LESS
+            case LessThan(_, _) => ExprOpType.EXPR_OP_TYPE_GREATER
+            case LessThanOrEqual(_, _) => ExprOpType.EXPR_OP_TYPE_GREATER_EQUALS
+            case GreaterThan(_, _) => ExprOpType.EXPR_OP_TYPE_LESS
+            case GreaterThanOrEqual(_, _) => ExprOpType.EXPR_OP_TYPE_LESS_EQUALS
           }
-          Some(constructBinaryExpr(attr.name, expr_op_type, value))
+          Some(constructBinaryExpr("obj_id", expr_op_type, value))
         }
         else {
           None

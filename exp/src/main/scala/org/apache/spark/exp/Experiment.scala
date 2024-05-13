@@ -22,9 +22,9 @@ import java.io.FileWriter
 import java.time.Duration
 import java.time.Instant
 
+import org.apache.spark.sql.execution.SparkSqlParser
 import org.apache.spark.sql.hive.HMSClientExt
 import org.apache.spark.tree.TreeExternalCatalog
-
 
 private[spark] class ExperimentUtil {
   val hms_ext = new HMSClientExt(Seq.empty)
@@ -36,6 +36,9 @@ private[spark] object Experiment {
   def main(args: Array[String]): Unit = {
     if (args(0) == "exp1") {
       exp1(args(1), args(2))
+    }
+    if (args(0) == "exp2") {
+      exp2(args(1), args(2))
     }
   }
 
@@ -121,5 +124,88 @@ private[spark] object Experiment {
 
     file_writer.close()
   }
+
+  private def exp2(db_str : String, file_name : String) : Unit = {
+    val exp_util = new ExperimentUtil
+    val file_writer = new FileWriter(new File(file_name))
+    val sqlParser = new SparkSqlParser
+    val tree_part_expr = sqlParser.parseExpression("part_field1 > 'part_field1=90000'")
+    val hms_part_expr = sqlParser.parseExpression("part_field1 > 90000")
+
+    file_writer.write("------ Experiment 2 ------\n")
+    file_writer.write("------ Testing Tree ------\n")
+
+    // initial call to establish connection
+    var start_time = Instant.now()
+    exp_util.tree.getDatabase(db_str)
+    var end_time = Instant.now()
+
+    start_time = Instant.now()
+    val tree_tables = exp_util.tree.listTables(db_str)
+    end_time = Instant.now()
+    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+      " ms for listTables()\n")
+
+    start_time = Instant.now()
+    val tree_table = exp_util.tree.getTable(db_str, tree_tables(0))
+    end_time = Instant.now()
+    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+      " ms for getTable()\n")
+
+    start_time = Instant.now()
+    val tree_partitions = exp_util.tree.listPartitionsByFilter(db_str, tree_tables(0),
+        Seq(tree_part_expr))
+    end_time = Instant.now()
+    printf(tree_partitions.size.toString + "\n")
+    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+      " ms for listPartitionsByFilter()\n")
+
+    start_time = Instant.now()
+    val tree_files = exp_util.tree.listFilesByFilter(db_str, tree_tables(0),
+      Seq(tree_part_expr))
+    end_time = Instant.now()
+    printf(tree_files.size.toString + "\n")
+    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+      " ms for listFilesByFilter()\n")
+
+    file_writer.write("------ Testing HMS ------\n")
+
+    // initial call to establish connection
+    start_time = Instant.now()
+    exp_util.hms.getDatabase(db_str)
+    end_time = Instant.now()
+
+    start_time = Instant.now()
+    val hms_tables = exp_util.hms.listTables(db_str)
+    end_time = Instant.now()
+    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+      " ms for listTables()\n")
+
+    start_time = Instant.now()
+    val hms_table = exp_util.hms.getTable(db_str, hms_tables(0))
+    end_time = Instant.now()
+    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+      " ms for getTable()\n")
+
+    start_time = Instant.now()
+    val hms_partitions = exp_util.hms.listPartitionsByFilter(db_str, hms_tables(0),
+      Seq(hms_part_expr), "UTC")
+    end_time = Instant.now()
+    printf(hms_partitions.size.toString + "\n")
+    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+      " ms for listPartitionsByFilter()\n")
+
+    hms_partitions.foreach { partition =>
+      exp_util.hms_ext.listFiles(partition)
+    }
+    end_time = Instant.now()
+    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+      " ms for listFilesByFilter()\n")
+
+    file_writer.close()
+  }
 }
+
+
+
 

@@ -17,9 +17,14 @@
 
 package org.apache.spark.tree
 
+import org.apache.spark.sql.execution.SparkSqlParser
+
 private[spark] object TreeExternalCatalogTester {
 
   def main(args: Array[String]): Unit = {
+
+    val sqlParser = new SparkSqlParser
+
     val db_name = args(0)
     val external_catalog = new TreeExternalCatalog()
     val db = external_catalog.getDatabase(db_name)
@@ -27,9 +32,15 @@ private[spark] object TreeExternalCatalogTester {
     val tables = external_catalog.listTables(db_name)
     printf(tables.toString() + "\n")
     val table = external_catalog.getTable(db_name, tables(0))
-    printf(table.toString() + "\n")
-    val files = external_catalog.listFiles(table)
-    printf(files.toString() + "\n")
+    val expr = sqlParser.parseExpression("part_field1 > 'part_field1=950'")
+    print(expr.toJSON + "\n")
+    val partitions = external_catalog.listPartitionsByFilter(db_name, tables(0), Seq(expr))
+    partitions.foreach{ partition => printf(partition.toString + "\n")}
+//    printf(table.toString() + "\n")
+//    val partitions = external_catalog.listPartitions(db_name, tables(0))
+//    partitions.foreach{ partition => printf(partition.toString + "\n")}
+//    val files = external_catalog.listFiles(table)
+//    printf(files.toString() + "\n")
   }
 
 }
