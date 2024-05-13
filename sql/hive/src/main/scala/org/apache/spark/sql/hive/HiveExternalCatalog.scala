@@ -1294,7 +1294,8 @@ private[spark] class HiveExternalCatalog(conf: SparkConf, hadoopConf: Configurat
       client.getPartitionsByFilter(rawHiveTable, predicates).map { part =>
         part.copy(spec = restorePartitionSpec(part.spec, partColNameMap))
       }
-    prunePartitionsByFilter(catalogTable, clientPrunedPartitions, predicates, defaultTimeZoneId)
+    clientPrunedPartitions
+    // prunePartitionsByFilter(catalogTable, clientPrunedPartitions, predicates, defaultTimeZoneId)
   }
 
   // --------------------------------------------------------------------------
