@@ -31,7 +31,9 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.connector.catalog.DelegatingCatalogExtension
 import org.apache.spark.sql.connector.catalog.Identifier
+import org.apache.spark.sql.delta.catalog.DeltaTableV2
 import org.apache.spark.sql.execution.SparkSqlParser
+import org.apache.spark.sql.execution.datasources.HadoopFsRelation
 import org.apache.spark.sql.hive.HMSClientExt
 import org.apache.spark.sql.internal.StaticSQLConf.CATALOG_IMPLEMENTATION
 import org.apache.spark.tree.TreeExternalCatalog
@@ -170,96 +172,92 @@ private[spark] object Experiment {
     if (args(0) == "exp2") {
       exp2(args(1), args(2))
     }
+    if (args(0) == "deltaexp") {
+      deltaexp(args(1), args(2))
+    }
   }
 
   private def exp1(db_str : String, file_name : String) : Unit = {
     val exp_util = new ExperimentUtil
-    val delta_catalog = exp_util.sparkSession.sessionState.catalogManager
-        .catalog("spark_catalog").asInstanceOf[DelegatingCatalogExtension]
-    val table = delta_catalog.loadTable(Identifier.of(Array(db_str), "table2"))
-    printf(table.toString + "\n")
-    printf(delta_catalog.getClass + "\n")
-//    val file_writer = new FileWriter(new File(file_name))
-//
-//    file_writer.write("------ Experiment 1 ------\n")
-//    file_writer.write("------ Testing Tree ------\n")
-//
-//    // initial call to establish connection
-//    var start_time = Instant.now()
-//    exp_util.tree.getDatabase(db_str)
-//    var end_time = Instant.now()
-//
-//    start_time = Instant.now()
-//    val tree_db = exp_util.tree.getDatabase(db_str)
-//    end_time = Instant.now()
-//    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
-//      " ms for getDatabase()\n")
-//
-//    start_time = Instant.now()
-//    val tree_tables = exp_util.tree.listTables(db_str)
-//    end_time = Instant.now()
-//    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
-//      " ms for listTables()\n")
-//
-//    start_time = Instant.now()
-//    val tree_table = exp_util.tree.getTable(db_str, tree_tables(0))
-//    end_time = Instant.now()
-//    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
-//      " ms for getTable()\n")
-//
-//    start_time = Instant.now()
-//    val tree_partitions = exp_util.tree.listPartitions(db_str, tree_tables(0))
-//    end_time = Instant.now()
-//    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
-//      " ms for listPartitions()\n")
-//
-//    start_time = Instant.now()
-//    val tree_files = exp_util.tree.listFiles(tree_table)
-//    end_time = Instant.now()
-//    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
-//      " ms for listFiles()\n")
-//
-//    file_writer.write("------ Testing HMS ------\n")
-//
-//    // initial call to establish connection
-//    start_time = Instant.now()
-//    exp_util.hms.getDatabase(db_str)
-//    end_time = Instant.now()
-//
-//    start_time = Instant.now()
-//    val hms_db = exp_util.hms.getDatabase(db_str)
-//    end_time = Instant.now()
-//    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
-//      " ms for getDatabase()\n")
-//
-//    start_time = Instant.now()
-//    val hms_tables = exp_util.hms.listTables(db_str)
-//    end_time = Instant.now()
-//    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
-//      " ms for listTables()\n")
-//
-//    start_time = Instant.now()
-//    val hms_table = exp_util.hms.getTable(db_str, hms_tables(0))
-//    end_time = Instant.now()
-//    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
-//      " ms for getTable()\n")
-//
-//    start_time = Instant.now()
-//    val hms_partitions = exp_util.hms.listPartitions(db_str, hms_tables(0))
-//    end_time = Instant.now()
-//    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
-//      " ms for listPartitions()\n")
-//
-//    hms_partitions.foreach { partition =>
-//      exp_util.hms_ext.listFiles(partition)
-//    }
-//    end_time = Instant.now()
-//    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
-//      " ms for listFiles()\n")
+    val file_writer = new FileWriter(new File(file_name))
 
+    file_writer.write("------ Experiment 1 ------\n")
+    file_writer.write("------ Testing Tree ------\n")
 
+    // initial call to establish connection
+    var start_time = Instant.now()
+    exp_util.tree.getDatabase(db_str)
+    var end_time = Instant.now()
 
-//    file_writer.close()
+    start_time = Instant.now()
+    val tree_db = exp_util.tree.getDatabase(db_str)
+    end_time = Instant.now()
+    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+      " ms for getDatabase()\n")
+
+    start_time = Instant.now()
+    val tree_tables = exp_util.tree.listTables(db_str)
+    end_time = Instant.now()
+    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+      " ms for listTables()\n")
+
+    start_time = Instant.now()
+    val tree_table = exp_util.tree.getTable(db_str, tree_tables(0))
+    end_time = Instant.now()
+    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+      " ms for getTable()\n")
+
+    start_time = Instant.now()
+    val tree_partitions = exp_util.tree.listPartitions(db_str, tree_tables(0))
+    end_time = Instant.now()
+    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+      " ms for listPartitions()\n")
+
+    start_time = Instant.now()
+    val tree_files = exp_util.tree.listFiles(tree_table)
+    end_time = Instant.now()
+    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+      " ms for listFiles()\n")
+
+    file_writer.write("------ Testing HMS ------\n")
+
+    // initial call to establish connection
+    start_time = Instant.now()
+    exp_util.hms.getDatabase(db_str)
+    end_time = Instant.now()
+
+    start_time = Instant.now()
+    val hms_db = exp_util.hms.getDatabase(db_str)
+    end_time = Instant.now()
+    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+      " ms for getDatabase()\n")
+
+    start_time = Instant.now()
+    val hms_tables = exp_util.hms.listTables(db_str)
+    end_time = Instant.now()
+    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+      " ms for listTables()\n")
+
+    start_time = Instant.now()
+    val hms_table = exp_util.hms.getTable(db_str, hms_tables(0))
+    end_time = Instant.now()
+    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+      " ms for getTable()\n")
+
+    start_time = Instant.now()
+    val hms_partitions = exp_util.hms.listPartitions(db_str, hms_tables(0))
+    end_time = Instant.now()
+    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+      " ms for listPartitions()\n")
+
+    hms_partitions.foreach { partition =>
+      exp_util.hms_ext.listFiles(partition)
+    }
+    end_time = Instant.now()
+    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+      " ms for listFiles()\n")
+
+    file_writer.close()
   }
 
   private def exp2(db_str : String, file_name : String) : Unit = {
@@ -340,6 +338,29 @@ private[spark] object Experiment {
       " ms for listFilesByFilter()\n")
 
     file_writer.close()
+  }
+
+  private def deltaexp(db_str : String, file_name : String) : Unit = {
+    val exp_util = new ExperimentUtil
+    val file_writer = new FileWriter(new File(file_name))
+    val delta_catalog = exp_util.sparkSession.sessionState.catalogManager
+      .catalog("spark_catalog").asInstanceOf[DelegatingCatalogExtension]
+
+    val table = delta_catalog.loadTable(Identifier.of(Array(db_str), "table1"))
+
+    val base_relation = table.asInstanceOf[DeltaTableV2].toBaseRelation
+      .asInstanceOf[HadoopFsRelation]
+    val start_time = Instant.now()
+    val partitions = base_relation.location.listFiles(Seq.empty, Seq.empty)
+    val files = partitions.flatMap(partitions => partitions.files)
+    val end_time = Instant.now()
+
+    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+      " ms for listFiles()\n")
+
+
+    file_writer.close()
+    // files.foreach( file => printf(file.getPath.toString + "\n"))
   }
 }
 
