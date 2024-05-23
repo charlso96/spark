@@ -23,12 +23,16 @@ import java.time.Duration
 import java.time.Instant
 import java.util.Locale
 
+import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable.HashMap
+import scala.collection.mutable.Map
 
 import org.apache.spark.SparkConf
 import org.apache.spark.SparkContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.catalog.CatalogTableFile
+import org.apache.spark.sql.catalyst.catalog.CatalogTablePartition
 import org.apache.spark.sql.connector.catalog.DelegatingCatalogExtension
 import org.apache.spark.sql.connector.catalog.Identifier
 import org.apache.spark.sql.delta.catalog.DeltaTableV2
@@ -81,7 +85,7 @@ private[spark] class ExperimentUtil extends Logging {
   val rootDir = conf.getOption("spark.repl.classdir").getOrElse(Utils.getLocalDir(conf))
   val outputDir = Utils.createTempDir(root = rootDir, namePrefix = "repl")
 
-  createSparkSession()
+//  createSparkSession()
 
   private def mergeDefaultSparkProperties(): Unit = {
     // Use common defaults file, if not specified by user
@@ -175,6 +179,9 @@ private[spark] object Experiment {
     }
     if (args(0) == "deltaexp") {
       deltaexp(args(1), args(2))
+    }
+    if (args(0) == "test") {
+      testCreatePartition(args(1))
     }
   }
 
@@ -296,13 +303,13 @@ private[spark] object Experiment {
     file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
       " ms for listPartitionsByFilter()\n")
 
-    start_time = Instant.now()
-    val tree_files = exp_util.tree.listFilesByFilter(db_str, tree_tables(0),
-      Seq(tree_part_expr), None)
-    end_time = Instant.now()
-    printf(tree_files.size.toString + "\n")
-    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
-      " ms for listFilesByFilter()\n")
+//    start_time = Instant.now()
+//    val tree_files = exp_util.tree.listFilesByFilter(db_str, tree_tables(0),
+//      Seq(tree_part_expr), None)
+//    end_time = Instant.now()
+//    printf(tree_files.size.toString + "\n")
+//    file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
+//      " ms for listFilesByFilter()\n")
 
     file_writer.write("------ Testing HMS ------\n")
 
@@ -362,6 +369,40 @@ private[spark] object Experiment {
 
     file_writer.close()
     // files.foreach( file => printf(file.getPath.toString + "\n"))
+  }
+
+  private def testCreatePartition(db_str : String) : Unit = {
+    val exp_util = new ExperimentUtil
+    exp_util.tree.getDatabase(db_str)
+    val tree_tables = exp_util.tree.listTables(db_str)
+    val tree_table = exp_util.tree.getTable(db_str, tree_tables(0))
+    val partitions = exp_util.tree.listPartitions(tree_table, None)
+    val files = exp_util.tree.listFiles(tree_table, None)
+
+    // create a new partition with bogus spec
+    val newSpec = Map.empty[String, String]
+    partitions(0).spec.foreach { case (key, value) =>
+      newSpec.put(key, value + "2")
+    }
+    val newPartition = CatalogTablePartition(newSpec.toMap, partitions(0).storage,
+      partitions(0).parameters)
+    var success = exp_util.tree.createPartition(tree_table, newPartition, None)
+    printf("Success:" + success.toString + "\n")
+    exp_util.tree.listPartitions(tree_table, None).foreach{ partition =>
+      printf(partition.toString + "\n")
+    }
+
+    // add a new file to the new partition
+    val newFiles = ArrayBuffer[CatalogTableFile]()
+    val newFile = CatalogTableFile(storage = files(0).storage, partitionValues = newSpec.toMap,
+      size = 0)
+    newFiles += newFile
+    success = exp_util.tree.addFiles(tree_table, newFiles, None)
+    printf("Success:" + success.toString + "\n")
+    exp_util.tree.listFiles(tree_table, None).foreach{ file =>
+      printf(file.toString + "\n")
+    }
+
   }
 }
 
