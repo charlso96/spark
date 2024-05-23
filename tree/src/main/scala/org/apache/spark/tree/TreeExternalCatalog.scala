@@ -112,6 +112,8 @@ private[spark] object TreeSerde {
       writer.writeName("stats")
       appendBson(writer, file.stats.get)
     }
+    writer.writeName("tags")
+    appendBson(writer, file.tags)
     writer.writeEndDocument()
 
     writer.writeEndDocument()
@@ -1256,11 +1258,11 @@ private[spark] class TreeExternalCatalog extends Logging {
           .setBaseOnly(true).setReturnType(1)
       setTxnId(queryRequest, newTxn)
       val queryResponses = catalogStub.executeQuery(queryRequest.build)
-      if (queryResponses.hasNext) {
+      partExists = queryResponses.hasNext
+      if (partExists) {
         while (queryResponses.hasNext) {
           queryResponses.next()
         }
-        partExists = true
       }
       else {
         partitionColumnNames.trimEnd(1)
