@@ -20,10 +20,18 @@ package org.apache.spark.tree
 import java.net.URI
 import java.nio.ByteBuffer
 
+import scala.collection.immutable
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
+import com.google.protobuf.ByteString
 import io.grpc.ManagedChannelBuilder
+import org.bson.BsonBinaryWriter
+import org.bson.BsonDocument
+import org.bson.BsonType
+import org.bson.BsonValue
 import org.bson.RawBsonDocument
+import org.bson.io.BasicOutputBuffer
 import org.bson.json.JsonMode
 import org.bson.json.JsonWriterSettings
 import org.json4s.CustomSerializer
@@ -45,13 +53,443 @@ import org.apache.spark.tree.grpc.Grpccatalog.Predicate
 import org.apache.spark.tree.grpc.GRPCCatalogGrpc
 import org.apache.spark.unsafe.types.UTF8String
 
+// custom serde that should be much faster than jackson
+private[spark] object TreeSerde {
+
+  // serializer for CatalogTablePartition
+  def toBson(objPath : String, partition : CatalogTablePartition): BasicOutputBuffer = {
+    val outputBuffer = new BasicOutputBuffer()
+    val writer = new BsonBinaryWriter(outputBuffer)
+    writer.writeStartDocument()
+
+    writer.writeStartDocument("meta")
+    writer.writeStartArray("paths")
+    writer.writeString(objPath)
+    writer.writeEndArray()
+    writer.writeEndDocument()
+
+    writer.writeStartDocument("val")
+    writer.writeString("obj_type", "partition")
+    writer.writeName("spec")
+    appendBson(writer, partition.spec)
+    writer.writeName("storage")
+    appendBson(writer, partition.storage)
+    writer.writeName("parameters")
+    appendBson(writer, partition.parameters)
+    writer.writeInt64("createTime", partition.createTime)
+    writer.writeInt64("lastAccessTime", partition.lastAccessTime)
+    if (partition.stats.isDefined) {
+      writer.writeName("stats")
+      appendBson(writer, partition.stats.get)
+    }
+    writer.writeEndDocument()
+
+    writer.writeEndDocument()
+    outputBuffer
+  }
+
+  // serializer for CatalogTableFile
+  def toBson(objPath: String, file : CatalogTableFile) : BasicOutputBuffer = {
+    val outputBuffer = new BasicOutputBuffer()
+    val writer = new BsonBinaryWriter(outputBuffer)
+    writer.writeStartDocument()
+
+    writer.writeStartDocument("meta")
+    writer.writeStartArray("paths")
+    writer.writeString(objPath)
+    writer.writeEndArray()
+    writer.writeEndDocument()
+
+    writer.writeStartDocument("val")
+    writer.writeString("obj_type", "file")
+    writer.writeName("storage")
+    appendBson(writer, file.storage)
+    writer.writeName("partitionValues")
+    appendBson(writer, file.partitionValues)
+    writer.writeInt64("size", file.size)
+    writer.writeInt64("modificationTime", file.modificationTime)
+    if (file.stats.isDefined) {
+      writer.writeName("stats")
+      appendBson(writer, file.stats.get)
+    }
+    writer.writeEndDocument()
+
+    writer.writeEndDocument()
+    outputBuffer
+  }
+
+  // serializer for CatalogStatistics
+  def toBson(objPath: String, table: CatalogTable, stats: CatalogStatistics) : BasicOutputBuffer = {
+    val outputBuffer = new BasicOutputBuffer()
+    val writer = new BsonBinaryWriter(outputBuffer)
+    writer.writeStartDocument()
+
+    writer.writeStartDocument("meta")
+    writer.writeStartArray("paths")
+    writer.writeString(objPath)
+    writer.writeEndArray()
+    writer.writeEndDocument()
+
+    writer.writeStartDocument("val")
+    writer.writeInt64("sizeInBytes", stats.sizeInBytes.toLong)
+    if (stats.rowCount.isDefined) {
+      writer.writeInt64("rowCount", stats.rowCount.get.toLong)
+    }
+    writer.writeName("colStats")
+    writer.writeStartDocument()
+    table.schema.fields.foreach{ field =>
+      val colStat = stats.colStats.get(field.name)
+      if (colStat.isDefined) {
+        writer.writeName(field.name)
+        appendBson(writer, field.dataType, colStat.get)
+      }
+    }
+    writer.writeEndDocument()
+    writer.writeEndDocument()
+
+    writer.writeEndDocument()
+    outputBuffer
+  }
+
+  def getPartId(table : CatalogTable, partition : CatalogTablePartition): String = {
+    var partId = ""
+    table.partitionColumnNames.foreach { colName =>
+      if (partition.spec.get(colName).isDefined) {
+        partId = partId + "/" +  colName + "=" + partition.spec.get(colName).getOrElse("DEFAULT")
+      }
+    }
+    partId
+  }
+
+  def getFileId(table : CatalogTable, file : CatalogTableFile): String = {
+    var fileId = ""
+    table.partitionColumnNames.foreach { colName =>
+      fileId = fileId + "/" +  colName + "=" + file.partitionValues.get(colName)
+        .getOrElse("DEFAULT")
+    }
+    val filePath = file.storage.locationUri.get.toString
+    fileId + filePath.slice(filePath.lastIndexOf('/'), filePath.size)
+  }
+
+  def appendBson(writer : BsonBinaryWriter, storage : CatalogStorageFormat) : Unit = {
+    writer.writeStartDocument()
+    if (storage.locationUri.isDefined) {
+      writer.writeString("locationUri", storage.locationUri.get.toString)
+    }
+    if (storage.inputFormat.isDefined) {
+      writer.writeString("inputFormat", storage.inputFormat.get)
+    }
+    if (storage.outputFormat.isDefined) {
+      writer.writeString("outputFormat", storage.outputFormat.get)
+    }
+    if (storage.serde.isDefined) {
+      writer.writeString("serde", storage.serde.get)
+    }
+    writer.writeBoolean("compressed", storage.compressed)
+    writer.writeName("properties")
+    appendBson(writer, storage.properties)
+    writer.writeEndDocument()
+  }
+
+  def appendBson(writer : BsonBinaryWriter, map : Map[String, String]) : Unit = {
+    writer.writeStartDocument()
+    map.foreach{ case (key, value) =>
+      writer.writeString(key, value)
+    }
+    writer.writeEndDocument()
+  }
+
+  def appendBson(writer : BsonBinaryWriter, stats : CatalogStatistics) : Unit = {
+    writer.writeStartDocument()
+    writer.writeInt64("sizeInBytes", stats.sizeInBytes.toLong)
+    if (stats.rowCount.isDefined) {
+      writer.writeInt64("rowCount", stats.rowCount.get.toLong)
+    }
+    writer.writeName("colStats")
+    writer.writeStartDocument()
+    stats.colStats.foreach{ case (colName, colStat) =>
+      writer.writeName(colName)
+      appendBson(writer, colStat)
+    }
+    writer.writeEndDocument()
+    writer.writeEndDocument()
+  }
+
+  def appendBson(writer : BsonBinaryWriter, colStat : CatalogColumnStat): Unit = {
+    writer.writeStartDocument()
+    if (colStat.distinctCount.isDefined) {
+      writer.writeInt64("distinctCount", colStat.distinctCount.get.toLong)
+    }
+    if (colStat.min.isDefined) {
+      writer.writeString("min", colStat.min.get)
+    }
+    if (colStat.max.isDefined) {
+      writer.writeString("max", colStat.max.get)
+    }
+    if (colStat.nullCount.isDefined) {
+      writer.writeInt64("nullCount", colStat.nullCount.get.toLong)
+    }
+    if (colStat.avgLen.isDefined) {
+      writer.writeInt64("avgLen", colStat.avgLen.get)
+    }
+    if (colStat.maxLen.isDefined) {
+      writer.writeInt64("maxLen", colStat.maxLen.get)
+    }
+    // no support for histogram
+    writer.writeInt32("version", colStat.version)
+
+    writer.writeEndDocument()
+  }
+
+  def appendBson(writer : BsonBinaryWriter, dataType: DataType, colStat : CatalogColumnStat):
+      Unit = {
+    writer.writeStartDocument()
+    if (colStat.distinctCount.isDefined) {
+      writer.writeInt64("distinctCount", colStat.distinctCount.get.toLong)
+    }
+    if (colStat.min.isDefined) {
+      dataType match {
+        case ByteType => writer.writeInt32("min", colStat.min.get.toInt)
+        case ShortType => writer.writeInt32("min", colStat.min.get.toInt)
+        case IntegerType => writer.writeInt32("min", colStat.min.get.toInt)
+        case LongType => writer.writeInt64("min", colStat.min.get.toLong)
+        case BooleanType => writer.writeBoolean("min", colStat.min.get.toBoolean)
+        case FloatType => writer.writeDouble("min", colStat.min.get.toDouble)
+        case DoubleType => writer.writeDouble("min", colStat.min.get.toDouble)
+        case _ => writer.writeString("min", colStat.min.get)
+      }
+    }
+    if (colStat.max.isDefined) {
+      dataType match {
+        case ByteType => writer.writeInt32("max", colStat.max.get.toInt)
+        case ShortType => writer.writeInt32("max", colStat.max.get.toInt)
+        case IntegerType => writer.writeInt32("max", colStat.max.get.toInt)
+        case LongType => writer.writeInt64("max", colStat.max.get.toLong)
+        case BooleanType => writer.writeBoolean("max", colStat.max.get.toBoolean)
+        case FloatType => writer.writeDouble("max", colStat.max.get.toDouble)
+        case DoubleType => writer.writeDouble("max", colStat.max.get.toDouble)
+        case _ => writer.writeString("max", colStat.max.get)
+      }
+    }
+    if (colStat.nullCount.isDefined) {
+      writer.writeInt64("nullCount", colStat.nullCount.get.toLong)
+    }
+    if (colStat.avgLen.isDefined) {
+      writer.writeInt64("avgLen", colStat.avgLen.get)
+    }
+    if (colStat.maxLen.isDefined) {
+      writer.writeInt64("maxLen", colStat.maxLen.get)
+    }
+    // no support for histogram
+    writer.writeInt32("version", colStat.version)
+
+    writer.writeEndDocument()
+  }
+
+  // deserializer for CatalogTablePartition
+  def toCatalogTablePartition(bsonDocument : BsonDocument) : CatalogTablePartition = {
+    val spec = toMap(bsonDocument.get("spec").asDocument())
+    val storage = toCatalogStorageFormat(bsonDocument.get("storage").asDocument())
+    val parameters = toMap(bsonDocument.get("parameters").asDocument())
+    val createTime = bsonDocument.get("createTime").asNumber().longValue()
+    val lastAccessTime = bsonDocument.get("lastAccessTime").asNumber().longValue()
+    val stats : Option[CatalogStatistics] = {
+      val statsBson = bsonDocument.get("stats")
+      if (statsBson != null) {
+        Some(toCatalogStatistics(statsBson.asDocument()))
+      }
+      else {
+        None
+      }
+    }
+    CatalogTablePartition(spec, storage, parameters, createTime, lastAccessTime, stats)
+  }
+
+  // deserializer for CatalogTableFile
+  def toCatalogTableFile(bsonDocument : BsonDocument) : CatalogTableFile = {
+    val storage = toCatalogStorageFormat(bsonDocument.get("storage").asDocument())
+    val partitionValues = toMap(bsonDocument.get("partitionValues").asDocument())
+    val size = bsonDocument.get("size").asNumber().longValue()
+    val modificationTime = bsonDocument.get("modificationTime").asNumber().longValue()
+    val stats : Option[CatalogStatistics] = {
+      val statsBson = bsonDocument.get("stats")
+      if (statsBson != null) {
+        Some(toCatalogStatistics(statsBson.asDocument()))
+      }
+      else {
+        None
+      }
+    }
+    val tags = toMap(bsonDocument.get("tags").asDocument())
+
+    CatalogTableFile(storage, partitionValues, size, modificationTime, stats, tags)
+
+  }
+
+  def toCatalogStorageFormat(bsonDocument : BsonDocument) : CatalogStorageFormat = {
+    val locationUri: Option[URI] = {
+      val locationUriBson = bsonDocument.get("locationUri")
+      if (locationUriBson != null) {
+        Some(new URI(locationUriBson.asString().getValue()))
+      }
+      else {
+        None
+      }
+    }
+
+    val inputFormat: Option[String] = {
+      val inputFormatBson = bsonDocument.get("inputFormat")
+      if (inputFormatBson != null) {
+        Some(inputFormatBson.asString().getValue())
+      }
+      else {
+        None
+      }
+    }
+
+    val outputFormat: Option[String] = {
+      val outputFormatBson = bsonDocument.get("outputFormat")
+      if (outputFormatBson != null) {
+        Some(outputFormatBson.asString().getValue())
+      }
+      else {
+        None
+      }
+    }
+
+    val serde: Option[String] = {
+      val serdeBson = bsonDocument.get("serde")
+      if (serdeBson != null) {
+        Some(serdeBson.asString().getValue())
+      }
+      else {
+        None
+      }
+    }
+
+    val compressed = bsonDocument.get("compressed").asBoolean().getValue()
+    val propertiesBson = toMap(bsonDocument.get("properties").asDocument())
+
+    CatalogStorageFormat(locationUri, inputFormat, outputFormat, serde,
+      compressed, propertiesBson)
+  }
+
+  def toMap(bsonDocument : BsonDocument) : immutable.Map[String, String] = {
+    val mutableMap : mutable.Map[String, String] = mutable.Map.empty
+    bsonDocument.forEach{ (key, value) =>
+      mutableMap.put(key, value.asString().getValue())
+    }
+    mutableMap.toMap
+  }
+
+  def toCatalogStatistics(bsonDocument : BsonDocument): CatalogStatistics = {
+    val sizeInBytes = bsonDocument.get("sizeInBytes").asNumber().longValue()
+    val rowCount = {
+      val rowCountBson = bsonDocument.get("rowCount")
+      if (rowCountBson != null) {
+        Some(BigInt(rowCountBson.asNumber().longValue()))
+      }
+      else {
+        None
+      }
+    }
+    val colStatsBson = bsonDocument.get("colStats").asDocument()
+    val colStats : mutable.Map[String, CatalogColumnStat] = mutable.Map.empty
+    colStatsBson.forEach{ (key, value) =>
+      colStats.put(key, toCatalogColumnStat(value.asDocument()))
+    }
+
+    CatalogStatistics(BigInt(sizeInBytes), rowCount, colStats.toMap)
+  }
+
+  private def bsonValToString(bsonVal : BsonValue) : Option[String] = {
+    val bsonType = bsonVal.getBsonType
+    bsonType match {
+      case BsonType.STRING => Some(bsonVal.asString().getValue)
+      case BsonType.INT32 => Some(bsonVal.asInt32().toString)
+      case BsonType.INT64 => Some(bsonVal.asInt64().toString)
+      case BsonType.BOOLEAN => Some(bsonVal.asBoolean().toString)
+      case BsonType.DOUBLE => Some(bsonVal.asDouble().toString)
+      case _ => None
+    }
+  }
+
+  def toCatalogColumnStat(bsonDocument : BsonDocument) : CatalogColumnStat = {
+    val distinctCount = {
+      val distinctCountBson = bsonDocument.get("distinctCount")
+      if (distinctCountBson != null) {
+        Some(BigInt(distinctCountBson.asNumber().longValue()))
+      }
+      else {
+        None
+      }
+    }
+    val min = {
+      val minBson = bsonDocument.get("min")
+      if (minBson != null) {
+        bsonValToString(minBson)
+      }
+      else {
+        None
+      }
+    }
+    val max = {
+      val maxBson = bsonDocument.get("max")
+      if (maxBson != null) {
+        bsonValToString(maxBson)
+      }
+      else {
+        None
+      }
+    }
+    val nullCount = {
+      val nullCountBson = bsonDocument.get("nullCount")
+      if (nullCountBson != null) {
+        Some(BigInt(nullCountBson.asNumber().longValue()))
+      }
+      else {
+        None
+      }
+    }
+    val avgLen = {
+      val avgLenBson = bsonDocument.get("avgLen")
+      if (avgLenBson != null) {
+        Some(avgLenBson.asNumber().longValue())
+      }
+      else {
+        None
+      }
+    }
+    val maxLen = {
+      val maxLenBson = bsonDocument.get("maxLen")
+      if (maxLenBson != null) {
+        Some(maxLenBson.asNumber().longValue())
+      }
+      else {
+        None
+      }
+    }
+    // we do not support histograms
+    val version = bsonDocument.get("version").asNumber().intValue()
+
+    CatalogColumnStat(distinctCount, min, max, nullCount, avgLen, maxLen, None, version)
+
+  }
+}
+
+private[spark] case class TreeTxn(txnMode : TxnMode,
+                                  txnId : Option[Long] = None,
+                                  vid : Option[Long] = None,
+                                  commitRequest : Option[CommitRequest.Builder] = None) {
+
+}
 
 private[spark] class TreeExternalCatalog extends Logging {
   private implicit val formats = Serialization.formats(NoTypeHints) + new HiveURISerializer +
     new HiveDataTypeSerializer + new HiveMetadataSerializer + new HiveStructTypeSerializer
   private val channel = ManagedChannelBuilder.forAddress("localhost", 9876).usePlaintext().
     asInstanceOf[ManagedChannelBuilder[_]].build()
-  val catalog_stub: GRPCCatalogGrpc.GRPCCatalogBlockingStub =
+  val catalogStub: GRPCCatalogGrpc.GRPCCatalogBlockingStub =
     GRPCCatalogGrpc.newBlockingStub(channel)
   val json_writer_setting : JsonWriterSettings = JsonWriterSettings.builder().
     outputMode(JsonMode.RELAXED).build()
@@ -444,282 +882,473 @@ private[spark] class TreeExternalCatalog extends Logging {
 
       case _ => None
     }
-    val path_expr_builder = PathExpr.newBuilder()
-    path_expr_builder.addPreds(constructBinaryPred("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS,
-      table.identifier.database.get))
-    path_expr_builder.addPreds(constructBinaryPred("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS,
-      table.identifier.table))
+    val pathExprBuilder = PathExpr.newBuilder()
 
+    val dbPred = constructDbPred(table.identifier.database.get)
+    val tablePred = constructTablePred(table.identifier.table)
+
+    pathExprBuilder.addPreds(dbPred).addPreds(tablePred)
+
+    val partTypeExpr = constructBinaryExpr("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "partition")
     table.partitionColumnNames.foreach{ col_name =>
-      val and_builder = ExprBool.newBuilder().setOpType(ExprBoolType.EXPR_BOOL_TYPE_AND)
+      val andBuilder = ExprBool.newBuilder().setOpType(ExprBoolType.EXPR_BOOL_TYPE_AND)
       filters.map(convert(col_name, _)).filter(!_.isEmpty)
-        .foreach(expr => and_builder.addArgs(expr.get))
-      val and = and_builder.build()
-      if (and.getArgsCount == 0) {
-        path_expr_builder.addPreds(Predicate.newBuilder().setWildcard(Wildcard.WILDCARD_ANY))
+        .foreach(expr => andBuilder.addArgs(expr.get))
+      if (andBuilder.getArgsCount == 0) {
+        pathExprBuilder.addPreds(Predicate.newBuilder().setExprNode(partTypeExpr))
       }
       else {
-        path_expr_builder.addPreds(Predicate.newBuilder()
-            .setExprNode(ExprNode.newBuilder().setExprBool(and)))
+        pathExprBuilder.addPreds(Predicate.newBuilder()
+            .setExprNode(ExprNode.newBuilder().setExprBool(andBuilder.addArgs(partTypeExpr))))
       }
     }
 
-    path_expr_builder
+    pathExprBuilder
   }
 
-  def getDatabase(db: String): CatalogDatabase = {
-    val db_pred = constructBinaryPred("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS,
-      db)
-    val query_request = ExecuteQueryRequest.newBuilder().setParseTree(
-        PathExpr.newBuilder().addPreds(db_pred))
-        .setBaseOnly(true).setReturnType(1).build()
-    val query_responses = catalog_stub.executeQuery(query_request)
-    if (query_responses.hasNext) {
-      val query_response = query_responses.next()
-      val response_buf = query_response.getObjList().toByteArray()
-      val buf_iter = new BufIterator(response_buf)
-      val json_str = new RawBsonDocument(response_buf, buf_iter.dataIdx(),
-        response_buf.size - buf_iter.dataIdx()).toJson(json_writer_setting)
+  private def constructDbPred(db: String) : Predicate = {
+    val dbOidExpr = constructBinaryExpr("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS, db)
+    val dbTypeExpr = constructBinaryExpr("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "database")
+    Predicate.newBuilder().setExprNode(ExprNode.newBuilder()
+      .setExprBool(ExprBool.newBuilder().setOpType(ExprBoolType.EXPR_BOOL_TYPE_AND)
+        .addArgs(dbOidExpr).addArgs(dbTypeExpr))).build()
+  }
+
+  private def constructTablePred(table : String) : Predicate = {
+    val tableOidExpr = constructBinaryExpr("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS, table)
+    val tableTypeExpr = constructBinaryExpr("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "table")
+    Predicate.newBuilder().setExprNode(ExprNode.newBuilder()
+      .setExprBool(ExprBool.newBuilder().addArgs(tableOidExpr).addArgs(tableTypeExpr)
+        .setOpType(ExprBoolType.EXPR_BOOL_TYPE_AND))).build()
+  }
+
+  private def setTxnId(queryRequest : ExecuteQueryRequest.Builder, txn : Option[TreeTxn]) = {
+    if (txn.isDefined) {
+      if (txn.get.txnMode == TxnMode.TXN_MODE_READ_ONLY)  {
+        queryRequest.setVid(txn.get.vid.get)
+      }
+      else if (txn.get.txnMode == TxnMode.TXN_MODE_READ_WRITE) {
+        queryRequest.setTxnId(txn.get.txnId.get)
+      }
+    }
+  }
+
+  private def toCatalogTablePartitions(queryResponses: java.util.Iterator[ExecuteQueryResponse])
+      : Seq[CatalogTablePartition] = {
+    val partitions = ArrayBuffer[CatalogTablePartition]()
+    queryResponses.forEachRemaining(response => {
+      val responseBuf = response.getObjList().toByteArray()
+      val bufIter = new BufIterator(responseBuf)
+      while (bufIter.valid()) {
+        val partBson = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
+          responseBuf.size - bufIter.dataIdx())
+        partitions += TreeSerde.toCatalogTablePartition(partBson)
+        bufIter.next()
+      }
+    })
+    partitions
+  }
+
+
+  private def toCatalogTableFiles(queryResponses: java.util.Iterator[ExecuteQueryResponse])
+  : Seq[CatalogTableFile] = {
+    val files = ArrayBuffer[CatalogTableFile]()
+    queryResponses.forEachRemaining(response => {
+      val responseBuf = response.getObjList().toByteArray()
+      val bufIter = new BufIterator(responseBuf)
+      while (bufIter.valid()) {
+        val fileBson = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
+          responseBuf.size - bufIter.dataIdx())
+        files += TreeSerde.toCatalogTableFile(fileBson)
+        bufIter.next()
+      }
+    })
+    files
+  }
+
+  // start a new txn. returns Some(Txn) if successful
+  def startTransaction(txnMode : TxnMode) : Option[TreeTxn] = {
+    val startTxnResponse = catalogStub.startTxn(StartTxnRequest.newBuilder()
+        .setTxnMode(txnMode).build)
+    if (startTxnResponse.getSuccess && txnMode == TxnMode.TXN_MODE_READ_ONLY) {
+      Some(TreeTxn(txnMode, None, Some(startTxnResponse.getVid), None))
+    }
+    else if (startTxnResponse.getSuccess && txnMode == TxnMode.TXN_MODE_READ_WRITE) {
+      val txnId = startTxnResponse.getTxnId
+      Some(TreeTxn(txnMode, Some(txnId), None, Some(CommitRequest.newBuilder().setTxnId(txnId))))
+    }
+    else {
+      None
+    }
+  }
+
+  // commits the given txn and returns true if successful
+  def commit(txn: TreeTxn) : Boolean = {
+    if (txn.txnMode == TxnMode.TXN_MODE_READ_ONLY) {
+      true
+    }
+    else if (txn.txnMode == TxnMode.TXN_MODE_READ_WRITE && txn.commitRequest.isDefined) {
+      val commitResponse = catalogStub.commit(txn.commitRequest.get.build)
+      commitResponse.getSuccess
+    }
+    else {
+      false
+    }
+
+  }
+
+  def getDatabase(db: String, txn : Option[TreeTxn] = None): CatalogDatabase = {
+    val dbPred = constructDbPred(db)
+    val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(
+        PathExpr.newBuilder().addPreds(dbPred))
+        .setBaseOnly(true).setReturnType(1)
+    setTxnId(queryRequest, txn)
+
+    val queryResponses = catalogStub.executeQuery(queryRequest.build())
+    if (queryResponses.hasNext) {
+      val queryResponse = queryResponses.next()
+      val responseBuf = queryResponse.getObjList().toByteArray()
+      val bufIter = new BufIterator(responseBuf)
+      val jsonStr = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
+        responseBuf.size - bufIter.dataIdx()).toJson(json_writer_setting)
       // iterate over every query response
-      while (query_responses.hasNext) {
-        query_responses.next()
+      while (queryResponses.hasNext) {
+        queryResponses.next()
       }
-      read[CatalogDatabase](json_str)
+      read[CatalogDatabase](jsonStr)
     }
     else {
       null
     }
   }
 
-  def getTable(db: String, table: String): CatalogTable = {
-    val db_pred = constructBinaryPred("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS, db)
-    val table_pred = constructBinaryPred("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS, table)
-    val query_request = ExecuteQueryRequest.newBuilder().setParseTree(PathExpr.newBuilder().
-        addPreds(db_pred).addPreds(table_pred).build()).setBaseOnly(true).setReturnType(1).build()
-    val query_responses = catalog_stub.executeQuery(query_request)
-    if (query_responses.hasNext) {
-      val query_response = query_responses.next()
-      val response_buf = query_response.getObjList().toByteArray()
-      val buf_iter = new BufIterator(response_buf)
-      val json_str = new RawBsonDocument(response_buf, buf_iter.dataIdx(),
-        response_buf.size - buf_iter.dataIdx()).toJson(json_writer_setting)
-      while (query_responses.hasNext) {
-        query_responses.next()
+  def getTable(db: String, table: String, txn : Option[TreeTxn] = None): CatalogTable = {
+    val dbPred = constructDbPred(db)
+    val tablePred = constructTablePred(table)
+
+    val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(PathExpr.newBuilder().
+        addPreds(dbPred).addPreds(tablePred).build()).setBaseOnly(true).setReturnType(1)
+    setTxnId(queryRequest, txn)
+
+    val queryResponses = catalogStub.executeQuery(queryRequest.build())
+    if (queryResponses.hasNext) {
+      val queryResponse = queryResponses.next()
+      val responseBuf = queryResponse.getObjList().toByteArray()
+      val bufIter = new BufIterator(responseBuf)
+      val jsonStr = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
+        responseBuf.size - bufIter.dataIdx()).toJson(json_writer_setting)
+      while (queryResponses.hasNext) {
+        queryResponses.next()
       }
-      read[CatalogTable](json_str)
+      read[CatalogTable](jsonStr)
     }
     else {
       null
     }
   }
 
-  def listTables(db: String): Seq[String] = {
-    val db_pred = constructBinaryPred("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS, db)
-    val query_request = ExecuteQueryRequest.newBuilder().setParseTree(PathExpr.newBuilder()
-        .addPreds(db_pred).addPreds(Predicate.newBuilder()
-        .setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build())).setBaseOnly(true)
-        .setReturnType(1).build()
-    val query_responses = catalog_stub.executeQuery(query_request)
+  def listTables(db: String, txn : Option[TreeTxn] = None): Seq[String] = {
+    val dbPred = constructDbPred(db)
+    val tablesPred = constructBinaryPred("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "table")
+
+    val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(PathExpr.newBuilder()
+        .addPreds(dbPred).addPreds(tablesPred).build()).setBaseOnly(true)
+        .setReturnType(1)
+    setTxnId(queryRequest, txn)
+
+    val queryResponses = catalogStub.executeQuery(queryRequest.build())
     val tables = ArrayBuffer[String]()
-    query_responses.forEachRemaining(response => {
-      val response_buf = response.getObjList().toByteArray()
-      val buf_iter = new BufIterator(response_buf)
-      while (buf_iter.valid()) {
-        val table_bson = new RawBsonDocument(response_buf, buf_iter.dataIdx(),
-          response_buf.size - buf_iter.dataIdx())
+    queryResponses.forEachRemaining(response => {
+      val responseBuf = response.getObjList().toByteArray()
+      val bufIter = new BufIterator(responseBuf)
+      while (bufIter.valid()) {
+        val table_bson = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
+          responseBuf.size - bufIter.dataIdx())
         tables += table_bson.get("identifier").asInstanceOf[RawBsonDocument].get("table").
           asString().getValue()
-        buf_iter.next()
+        bufIter.next()
       }
     })
     tables
   }
 
-  def listPartitions(db: String, table: String): Seq[CatalogTablePartition] = {
-    val table_obj = getTable(db, table)
-    val db_pred = constructBinaryPred("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS, db)
-    val table_pred = constructBinaryPred("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS, table)
-    val path_expr_builder = PathExpr.newBuilder().addPreds(db_pred).addPreds(table_pred)
-    // TODO take care of stats (only get partitions)
-    table_obj.partitionColumnNames.foreach { _ =>
-      path_expr_builder.addPreds(Predicate.newBuilder().
-        setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build())
+  def listPartitions(db: String, table: String, txn : Option[TreeTxn]):
+      Seq[CatalogTablePartition] = {
+    val tableObj = getTable(db, table, txn)
+    listPartitions(tableObj, txn)
+  }
+
+  def listPartitions(table: CatalogTable, txn : Option[TreeTxn]):
+      Seq[CatalogTablePartition] = {
+    if (table.partitionColumnNames.isEmpty) {
+      ArrayBuffer[CatalogTablePartition]()
     }
+    else {
+      val dbPred = constructDbPred(table.identifier.database.get)
+      val tablePred = constructTablePred(table.identifier.table)
 
-    val query_request = ExecuteQueryRequest.newBuilder().setParseTree(
-      path_expr_builder.build()).setBaseOnly(true).setReturnType(1).build()
-    val query_responses = catalog_stub.executeQuery(query_request)
-    val partitions = ArrayBuffer[CatalogTablePartition]()
-    query_responses.forEachRemaining(response => {
-      val response_buf = response.getObjList().toByteArray()
-      val buf_iter = new BufIterator(response_buf)
-      while (buf_iter.valid()) {
-        val json_str = new RawBsonDocument(response_buf, buf_iter.dataIdx(),
-          response_buf.size - buf_iter.dataIdx()).toJson(json_writer_setting)
-        partitions += read[CatalogTablePartition](json_str)
-        buf_iter.next()
+      val pathExprBuilder = PathExpr.newBuilder().addPreds(dbPred).addPreds(tablePred)
+
+      val partPred = constructBinaryPred("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "partition")
+
+      table.partitionColumnNames.foreach { _ =>
+        pathExprBuilder.addPreds(partPred)
       }
-    })
-    partitions
 
+      val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(
+        pathExprBuilder.build()).setBaseOnly(true).setReturnType(1)
+      setTxnId(queryRequest, txn)
+
+      val queryResponses = catalogStub.executeQuery(queryRequest.build())
+      toCatalogTablePartitions(queryResponses)
+    }
   }
 
-  def listPartitionsByFilter(db: String, table: String, predicates: Seq[Expression]):
+  def listPartitionsByFilter(db: String, table: String, predicates: Seq[Expression],
+                             txn : Option[TreeTxn]):
       Seq[CatalogTablePartition] = {
-    val table_obj = getTable(db, table)
-    val path_expr_builder = convertFilters(table_obj, predicates)
-
-    val query_request = ExecuteQueryRequest.newBuilder().setParseTree(
-      path_expr_builder.build()).setBaseOnly(true).setReturnType(1).build()
-    val query_responses = catalog_stub.executeQuery(query_request)
-    val partitions = ArrayBuffer[CatalogTablePartition]()
-    query_responses.forEachRemaining(response => {
-      val response_buf = response.getObjList().toByteArray()
-      val buf_iter = new BufIterator(response_buf)
-      while (buf_iter.valid()) {
-        val json_str = new RawBsonDocument(response_buf, buf_iter.dataIdx(),
-          response_buf.size - buf_iter.dataIdx()).toJson(json_writer_setting)
-        partitions += read[CatalogTablePartition](json_str)
-        buf_iter.next()
-      }
-    })
-    partitions
+    val tableObj = getTable(db, table, txn)
+    listPartitionsByFilter(tableObj, predicates, txn)
   }
 
-  def listPartitionsByFilter(table: CatalogTable, predicates: Seq[Expression]):
+  def listPartitionsByFilter(table: CatalogTable, predicates: Seq[Expression],
+                             txn : Option[TreeTxn]):
       Seq[CatalogTablePartition] = {
-    val path_expr_builder = convertFilters(table, predicates)
+    val pathExprBuilder = convertFilters(table, predicates)
+    val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(
+      pathExprBuilder.build()).setBaseOnly(true).setReturnType(1)
+    setTxnId(queryRequest, txn)
 
-    val query_request = ExecuteQueryRequest.newBuilder().setParseTree(
-      path_expr_builder.build()).setBaseOnly(true).setReturnType(1).build()
-    val query_responses = catalog_stub.executeQuery(query_request)
-    val partitions = ArrayBuffer[CatalogTablePartition]()
-    query_responses.forEachRemaining(response => {
-      val response_buf = response.getObjList().toByteArray()
-      val buf_iter = new BufIterator(response_buf)
-      while (buf_iter.valid()) {
-        val json_str = new RawBsonDocument(response_buf, buf_iter.dataIdx(),
-          response_buf.size - buf_iter.dataIdx()).toJson(json_writer_setting)
-        partitions += read[CatalogTablePartition](json_str)
-        buf_iter.next()
-      }
-    })
-    partitions
+    val queryResponses = catalogStub.executeQuery(queryRequest.build())
+    toCatalogTablePartitions(queryResponses)
   }
 
-  def listFilesByFilter(db: String, table: String, predicates: Seq[Expression]):
-      Seq[String] = {
-    val table_obj = getTable(db, table)
-    val path_expr_builder = convertFilters(table_obj, predicates)
-    path_expr_builder.addPreds(Predicate.newBuilder().
-      setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY))
+  def getPartition(table: CatalogTable, spec: Map[String, String], txn : Option[TreeTxn] = None):
+      Seq[CatalogTablePartition] = {
+    val dbPred = constructDbPred(table.identifier.database.get)
+    val tablePred = constructTablePred(table.identifier.table)
+    val pathExprBuilder = PathExpr.newBuilder().addPreds(dbPred).addPreds(tablePred)
 
-    val query_request = ExecuteQueryRequest.newBuilder().setParseTree(
-      path_expr_builder.build()).setBaseOnly(true).setReturnType(2).build()
-    val query_responses = catalog_stub.executeQuery(query_request)
-    val files = ArrayBuffer[String]()
-    query_responses.forEachRemaining(response => {
-      val response_buf = response.getObjList().toByteArray()
-      val buf_iter = new BufIterator(response_buf)
-      while (buf_iter.valid()) {
-        val file_bson = new RawBsonDocument(response_buf, buf_iter.dataIdx(),
-          response_buf.size - buf_iter.dataIdx())
-        files += file_bson.get("path").asString().getValue()
-        buf_iter.next()
-      }
-    })
-    files
-  }
-
-  def listFilesByFilter(table: CatalogTable, predicates: Seq[Expression]):
-      Seq[String] = {
-    val path_expr_builder = convertFilters(table, predicates)
-    path_expr_builder.addPreds(Predicate.newBuilder().
-      setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY))
-
-    val query_request = ExecuteQueryRequest.newBuilder().setParseTree(
-      path_expr_builder.build()).setBaseOnly(true).setReturnType(2).build()
-    val query_responses = catalog_stub.executeQuery(query_request)
-    val files = ArrayBuffer[String]()
-    query_responses.forEachRemaining(response => {
-      val response_buf = response.getObjList().toByteArray()
-      val buf_iter = new BufIterator(response_buf)
-      while (buf_iter.valid()) {
-        val file_bson = new RawBsonDocument(response_buf, buf_iter.dataIdx(),
-          response_buf.size - buf_iter.dataIdx())
-        files += file_bson.get("path").asString().getValue()
-        buf_iter.next()
-      }
-    })
-    files
-  }
-
-  def listFiles(table : CatalogTable) : Seq[String] = {
-    val db_pred = constructBinaryPred("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS, table.
-        identifier.database.get)
-    val table_pred = constructBinaryPred("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS,
-        table.identifier.table)
-    val path_expr_builder = PathExpr.newBuilder().addPreds(db_pred).addPreds(table_pred)
-
+    val partTypeExpr = constructBinaryExpr("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "partition")
     table.partitionColumnNames.foreach({ column_name =>
-      path_expr_builder.addPreds(Predicate.newBuilder().
-        setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build())
+      val andBuilder = ExprBool.newBuilder().setOpType(ExprBoolType.EXPR_BOOL_TYPE_AND)
+      andBuilder.addArgs(constructBinaryExpr("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS,
+        column_name + "=" + spec.get(column_name).getOrElse("DEFAULT")))
+      andBuilder.addArgs(partTypeExpr)
+
+      pathExprBuilder.addPreds(Predicate.newBuilder()
+        .setExprNode(ExprNode.newBuilder().setExprBool(andBuilder)))
     })
-    val query_request = ExecuteQueryRequest.newBuilder().setParseTree(path_expr_builder.
-      addPreds(Predicate.newBuilder().setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build()).
-        build()).setBaseOnly(true).setReturnType(2).build()
-    val query_responses = catalog_stub.executeQuery(query_request)
-    val files = ArrayBuffer[String]()
-    query_responses.forEachRemaining(response => {
-      val response_buf = response.getObjList().toByteArray()
-      val buf_iter = new BufIterator(response_buf)
-      while (buf_iter.valid()) {
-        val file_bson = new RawBsonDocument(response_buf, buf_iter.dataIdx(),
-          response_buf.size - buf_iter.dataIdx())
-        files += file_bson.get("path").asString().getValue()
-        buf_iter.next()
-      }
-    })
-    files
+
+    val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(pathExprBuilder.build())
+        .setBaseOnly(true).setReturnType(1)
+    setTxnId(queryRequest, txn)
+
+    val queryResponses = catalogStub.executeQuery(queryRequest.build)
+    toCatalogTablePartitions(queryResponses)
   }
 
-  def listFiles(table : CatalogTable, partition : CatalogTablePartition) : Seq[String] = {
-    val db_pred = constructBinaryPred("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS, table.
-      identifier.database.get)
-    val table_pred = constructBinaryPred("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS,
-      table.identifier.table)
-    val path_expr_builder = PathExpr.newBuilder().addPreds(db_pred).addPreds(table_pred)
+  def listFilesByFilter(db: String, table: String, predicates: Seq[Expression],
+                        txn : Option[TreeTxn]): Seq[CatalogTableFile] = {
+    val tableObj = getTable(db, table, txn)
+    listFilesByFilter(tableObj, predicates, txn)
+  }
+
+  def listFilesByFilter(table: CatalogTable, predicates: Seq[Expression],
+                        txn : Option[TreeTxn]): Seq[CatalogTableFile] = {
+    val pathExprBuilder = convertFilters(table, predicates)
+    pathExprBuilder.addPreds(Predicate.newBuilder().
+      setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY))
+
+    val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(
+      pathExprBuilder.build()).setBaseOnly(true).setReturnType(2)
+    setTxnId(queryRequest, txn)
+
+    val queryResponses = catalogStub.executeQuery(queryRequest.build())
+    toCatalogTableFiles(queryResponses)
+  }
+
+  def listFiles(table : CatalogTable, txn : Option[TreeTxn]) : Seq[CatalogTableFile] = {
+    val dbPred = constructDbPred(table.identifier.database.get)
+    val tablePred = constructTablePred(table.identifier.table)
+    val pathExprBuilder = PathExpr.newBuilder().addPreds(dbPred).addPreds(tablePred)
+
+    val partPred = constructBinaryPred("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "partition")
+    table.partitionColumnNames.foreach({ column_name =>
+      pathExprBuilder.addPreds(partPred)
+    })
+    val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(pathExprBuilder.
+      addPreds(Predicate.newBuilder().setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build()).
+        build()).setBaseOnly(true).setReturnType(2)
+    setTxnId(queryRequest, txn)
+
+    val queryResponses = catalogStub.executeQuery(queryRequest.build())
+    toCatalogTableFiles(queryResponses)
+  }
+
+  def listFiles(table : CatalogTable, partition : CatalogTablePartition,
+                txn : Option[TreeTxn]) : Seq[CatalogTableFile] = {
+    val dbPred = constructDbPred(table.identifier.database.get)
+    val tablePred = constructTablePred(table.identifier.table)
+    val pathExprBuilder = PathExpr.newBuilder().addPreds(dbPred).addPreds(tablePred)
+
+    val partTypeExpr = constructBinaryExpr("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "partition")
+    val partTypePred = Predicate.newBuilder().setExprNode(partTypeExpr).build
     table.partitionColumnNames.foreach({ column_name =>
       if (partition.spec.contains(column_name)) {
-        path_expr_builder.addPreds(constructBinaryPred("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS,
-          column_name + "=" + partition.spec.get(column_name)))
+        val andBuilder = ExprBool.newBuilder().setOpType(ExprBoolType.EXPR_BOOL_TYPE_AND)
+        andBuilder.addArgs(constructBinaryExpr("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS,
+          column_name + "=" + partition.spec.get(column_name).get))
+        andBuilder.addArgs(partTypeExpr)
+
+        pathExprBuilder.addPreds(Predicate.newBuilder()
+          .setExprNode(ExprNode.newBuilder().setExprBool(andBuilder)))
       }
       else {
-        path_expr_builder.addPreds(Predicate.newBuilder().
-          setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build())
+        pathExprBuilder.addPreds(partTypePred)
       }
     })
 
-    val query_request = ExecuteQueryRequest.newBuilder().setParseTree(path_expr_builder.
+    val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(pathExprBuilder.
         addPreds(Predicate.newBuilder().setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build()).
-        build()).setBaseOnly(true).setReturnType(2).build()
-    val query_responses = catalog_stub.executeQuery(query_request)
-    val files = ArrayBuffer[String]()
-    query_responses.forEachRemaining(response => {
-      val response_buf = response.getObjList().toByteArray()
-      val buf_iter = new BufIterator(response_buf)
-      while (buf_iter.valid()) {
-        val file_bson = new RawBsonDocument(response_buf, buf_iter.dataIdx(),
-          response_buf.size - buf_iter.dataIdx())
-        files += file_bson.get("path").asString().getValue()
-        buf_iter.next()
-      }
-    })
-    files
+        build()).setBaseOnly(true).setReturnType(2)
+    setTxnId(queryRequest, txn)
+
+    val queryResponses = catalogStub.executeQuery(queryRequest.build)
+    toCatalogTableFiles(queryResponses)
   }
 
+  def createPartition(table : CatalogTable, partition : CatalogTablePartition,
+                      txn : Option[TreeTxn]) : Option[Boolean] = {
+    val newTxn = {
+      if (txn.isDefined) {
+        txn
+      }
+      else {
+        startTransaction(TxnMode.TXN_MODE_READ_WRITE)
+      }
+    }
 
+// TODO: throw error if txn is empty
+//    if (newTxn.isEmpty) {
+//      throw
+//    }
+    val dbPred = constructDbPred(table.identifier.database.get)
+    val tablePred = constructTablePred(table.identifier.table)
 
+    val partTypeExpr = constructBinaryExpr("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "partition")
 
-  // TODO : implement get partitions/files by filter
+    var partExists = false
+    val partitionColumnNames = table.partitionColumnNames.to[mutable.ArrayBuffer]
+    // check if the partition exists at each level from bottom to top
+    while (!partExists && !partitionColumnNames.isEmpty) {
+      val pathExprBuilder = PathExpr.newBuilder().addPreds(dbPred).addPreds(tablePred)
+      partitionColumnNames.foreach{ columnName =>
+        val andBuilder = ExprBool.newBuilder().setOpType(ExprBoolType.EXPR_BOOL_TYPE_AND)
+        andBuilder.addArgs(constructBinaryExpr("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS,
+          columnName + "=" + partition.spec.get(columnName).getOrElse("DEFAULT")))
+        andBuilder.addArgs(partTypeExpr)
+        pathExprBuilder.addPreds(Predicate.newBuilder()
+          .setExprNode(ExprNode.newBuilder().setExprBool(andBuilder)))
+      }
+
+      val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(pathExprBuilder)
+          .setBaseOnly(true).setReturnType(1)
+      setTxnId(queryRequest, newTxn)
+      val queryResponses = catalogStub.executeQuery(queryRequest.build)
+      if (queryResponses.hasNext) {
+        while (queryResponses.hasNext) {
+          queryResponses.next()
+        }
+        partExists = true
+      }
+      else {
+        partitionColumnNames.trimEnd(1)
+      }
+    }
+
+    val partitionVals : mutable.Map[String, String] = mutable.Map.empty
+    partitionColumnNames.foreach{ columnName =>
+      partitionVals.put(columnName, partition.spec.get(columnName).getOrElse("DEFAULT"))
+    }
+
+    val commitRequest = newTxn.get.commitRequest.get
+    val emptyStorage = CatalogStorageFormat(None, None, None, None, false,
+      Map.empty[String, String])
+    for ( i <- partitionColumnNames.length until table.partitionColumnNames.length - 1) {
+      val columnName = table.partitionColumnNames(i)
+      partitionVals.put(columnName, partition.spec.get(columnName).getOrElse("DEFAULT"))
+      val parentPartition = CatalogTablePartition(partitionVals.toMap, emptyStorage,
+          Map.empty, System.currentTimeMillis, -1, None)
+      val objPath = "/" + table.identifier.database.get + "/" + table.identifier.table +
+          TreeSerde.getPartId(table, parentPartition)
+      val partitionBson = TreeSerde.toBson(objPath, parentPartition)
+      commitRequest.addWriteSet(Write.newBuilder()
+        .setType(WriteType.WRITE_TYPE_ADD)
+        .setIsLeaf(false)
+        .setWriteValue(ByteString.copyFrom(partitionBson.getInternalBuffer, 0,
+          partitionBson.getPosition))
+        .setPathStr(objPath))
+    }
+
+    val objPath = "/" + table.identifier.database.get + "/" + table.identifier.table +
+      TreeSerde.getPartId(table, partition)
+    val partitionBson = TreeSerde.toBson(objPath, partition)
+    commitRequest.addWriteSet(Write.newBuilder()
+      .setType(WriteType.WRITE_TYPE_ADD)
+      .setIsLeaf(false)
+      .setWriteValue(ByteString.copyFrom(partitionBson.getInternalBuffer, 0,
+        partitionBson.getPosition))
+      .setPathStr(objPath))
+
+    // if not part of the existing transaction, commit
+    if (txn.isEmpty) {
+      Some(commit(newTxn.get))
+    }
+    else {
+      None
+    }
+
+  }
+
+  // add given files to the table, returns true if successful
+  def addFiles(table : CatalogTable, files : Seq[CatalogTableFile],
+               txn : Option[TreeTxn] = None): Option[Boolean] = {
+    val newTxn = {
+      if (txn.isDefined) {
+        txn
+      }
+      else {
+        startTransaction(TxnMode.TXN_MODE_READ_WRITE)
+      }
+    }
+
+    // TODO: throw error if txn is empty
+    //    if (newTxn.isEmpty) {
+    //      throw
+    //    }
+
+    val commitRequest = newTxn.get.commitRequest.get
+    files.foreach{ file =>
+      val objPath = "/" + table.identifier.database.get + "/" + table.identifier.table +
+        TreeSerde.getFileId(table, file)
+      val fileBson = TreeSerde.toBson(objPath, file)
+      // TODO: add stats delta to the parent table and partitions
+      commitRequest.addWriteSet(Write.newBuilder()
+        .setType(WriteType.WRITE_TYPE_ADD)
+        .setIsLeaf(true)
+        .setWriteValue(ByteString.copyFrom(fileBson.getInternalBuffer, 0,
+          fileBson.getPosition))
+        .setPathStr(objPath))
+    }
+
+    // if not part of the existing transaction, commit
+    if (txn.isEmpty) {
+      Some(commit(newTxn.get))
+    }
+    else {
+      None
+    }
+  }
+
 }

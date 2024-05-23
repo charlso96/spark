@@ -168,6 +168,59 @@ case class CatalogTablePartition(
   }
 }
 
+/**
+ * A file (Hive style) defined in the catalog.
+ * @param storage storage format of the file
+ * @param partitionValues partition spec values indexed by column name
+ * @param size: size of the file
+ * @param modificationTime creation time of the file, in milliseconds
+ * @param stats optional statistics (number of rows, total size, etc.)
+ * @param optional tags
+ */
+case class CatalogTableFile(
+    storage: CatalogStorageFormat,
+    partitionValues: CatalogTypes.TablePartitionSpec,
+    size: Long,
+    modificationTime: Long = System.currentTimeMillis,
+    stats: Option[CatalogStatistics] = None,
+    tags: Map[String, String] = Map.empty) {
+
+  def toLinkedHashMap: mutable.LinkedHashMap[String, String] = {
+    val map = new mutable.LinkedHashMap[String, String]()
+    map ++= storage.toLinkedHashMap
+    val partValString = partitionValues.map { case (k, v) => s"$k=$v" }.mkString(", ")
+    map.put("Partition Values", s"[$partValString]")
+    map.put("Size", size.toString)
+    map.put("Modification Time", new Date(modificationTime).toString)
+    stats.foreach(s => map.put("File Statistics", s.simpleString))
+    if (tags.nonEmpty) {
+      map.put("File Tags", s"{" +
+        s"${tags.map(p => p._1 + "=" + p._2).mkString(", ")}}")
+    }
+    map
+  }
+
+  override def toString: String = {
+    toLinkedHashMap.map { case ((key, value)) =>
+      if (value.isEmpty) key else s"$key: $value"
+    }.mkString("CatalogTableFile(\n\t", "\n\t", ")")
+  }
+
+  /** Readable string representation for the CatalogTableFile. */
+  def simpleString: String = {
+    toLinkedHashMap.map { case ((key, value)) =>
+      if (value.isEmpty) key else s"$key: $value"
+    }.mkString("", "\n", "")
+  }
+
+  /** Return the partition location, assuming it is specified. */
+  def location: URI = storage.locationUri.getOrElse {
+    val specString = partitionValues.map { case (k, v) => s"$k=$v" }.mkString(", ")
+    throw QueryCompilationErrors.partitionNotSpecifyLocationUriError(specString)
+  }
+
+}
+
 
 /**
  * A container for bucketing information.

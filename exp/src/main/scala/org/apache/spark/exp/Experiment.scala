@@ -40,6 +40,7 @@ import org.apache.spark.tree.TreeExternalCatalog
 import org.apache.spark.util.Utils
 
 
+
 private[spark] class ExperimentUtil extends Logging {
   val hms_ext = new HMSClientExt(Seq.empty)
   val hms = hms_ext.client
@@ -208,13 +209,13 @@ private[spark] object Experiment {
       " ms for getTable()\n")
 
     start_time = Instant.now()
-    val tree_partitions = exp_util.tree.listPartitions(db_str, tree_tables(0))
+    val tree_partitions = exp_util.tree.listPartitions(db_str, tree_tables(0), None)
     end_time = Instant.now()
     file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
       " ms for listPartitions()\n")
 
     start_time = Instant.now()
-    val tree_files = exp_util.tree.listFiles(tree_table)
+    val tree_files = exp_util.tree.listFiles(tree_table, None)
     end_time = Instant.now()
     file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
       " ms for listFiles()\n")
@@ -289,7 +290,7 @@ private[spark] object Experiment {
 
     start_time = Instant.now()
     val tree_partitions = exp_util.tree.listPartitionsByFilter(db_str, tree_tables(0),
-        Seq(tree_part_expr))
+        Seq(tree_part_expr), None)
     end_time = Instant.now()
     printf(tree_partitions.size.toString + "\n")
     file_writer.write(Duration.between(start_time, end_time).toMillis().toString +
@@ -297,7 +298,7 @@ private[spark] object Experiment {
 
     start_time = Instant.now()
     val tree_files = exp_util.tree.listFilesByFilter(db_str, tree_tables(0),
-      Seq(tree_part_expr))
+      Seq(tree_part_expr), None)
     end_time = Instant.now()
     printf(tree_files.size.toString + "\n")
     file_writer.write(Duration.between(start_time, end_time).toMillis().toString +

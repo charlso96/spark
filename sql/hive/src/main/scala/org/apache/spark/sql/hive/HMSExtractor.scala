@@ -37,7 +37,7 @@ import org.json4s.jackson.Serialization
 import org.apache.spark.SparkConf
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.catalog.{CatalogTable, CatalogTablePartition}
+import org.apache.spark.sql.catalyst.catalog.{CatalogStorageFormat, CatalogTable, CatalogTableFile, CatalogTablePartition}
 import org.apache.spark.sql.types.{DataType, Metadata, StructType}
 import org.apache.spark.util._
 
@@ -238,20 +238,32 @@ private[spark] class HMSClientExt(args: Seq[String], env:
   }
 
   def getFileJson(table : CatalogTable, file : FileStatus) : String = {
-    "{\"meta\": {\"paths\": [\"/" + table.identifier.database.get + "/" +
+    val file_prefix = "{\"meta\": {\"paths\": [\"/" + table.identifier.database.get + "/" +
       table.identifier.table + getFileId(file) + "\"], \"obj_kind\": 2}, " +
-      "\"val\": {\"obj_type\": \"file\", \"path\": \"" + file.getPath.toString +
-      "\", \"size\": " + file.getLen.toString + ", \"modificationTime\": " +
-      file.getModificationTime.toString + "}}"
+      "\"val\": {\"obj_type\": \"file\", "
+    val fileStorage = CatalogStorageFormat(Some(new URI(file.getPath.toString)),
+      table.storage.inputFormat, table.storage.outputFormat, table.storage.serde,
+      table.storage.compressed, table.storage.properties)
+    val fileObj = CatalogTableFile(fileStorage, Map.empty[String, String].toMap,
+      file.getLen, file.getModificationTime, None, Map.empty[String, String].toMap)
+    val json_brace : Regex = "\\{".r
+    val file_json = Serialization.write(fileObj)
+    json_brace.replaceFirstIn(file_json, file_prefix) + "}"
   }
   def getFileJson(table : CatalogTable, partition : CatalogTablePartition,
                   file : FileStatus) : String = {
-    "{\"meta\": {\"paths\": [\"/" + table.identifier.database.get + "/" +
-    table.identifier.table + getPartId(table, partition) +
-    getFileId(file) + "\"], \"obj_kind\": 2}, " +
-    "\"val\": {\"obj_type\": \"file\", \"path\": \"" + file.getPath.toString +
-      "\", \"size\": " + file.getLen.toString + ", \"modificationTime\": " +
-      file.getModificationTime.toString + "}}"
+    val file_prefix = "{\"meta\": {\"paths\": [\"/" + table.identifier.database.get + "/" +
+      table.identifier.table + getPartId(table, partition) + getFileId(file) +
+      "\"], \"obj_kind\": 2}, " +
+      "\"val\": {\"obj_type\": \"file\", "
+    val fileStorage = CatalogStorageFormat(Some(new URI(file.getPath.toString)),
+      partition.storage.inputFormat, partition.storage.outputFormat, partition.storage.serde,
+      partition.storage.compressed, partition.storage.properties)
+    val fileObj = CatalogTableFile(fileStorage, partition.spec,
+      file.getLen, file.getModificationTime, None, Map.empty[String, String].toMap)
+    val json_brace : Regex = "\\{".r
+    val file_json = Serialization.write(fileObj)
+    json_brace.replaceFirstIn(file_json, file_prefix) + "}"
   }
 
   def listTables(db_name : String) : Seq[String] = {
@@ -305,9 +317,6 @@ private[spark] object HMSExtractor extends Logging {
 
     val db_name = args(0)
     val file_writer = new FileWriter(new File(args(1)))
-    // write the root object first
-    file_writer.write("{\"meta\": {\"paths\": [\"/\"], \"obj_kind\": 0}, " +
-      "\"val\": {\"obj_type\": \"root\"}}\n")
     // write the db object
     val db_json = hms_ext.getDBJson(db_name)
     file_writer.write(db_json + "\n")
@@ -337,6 +346,8 @@ private[spark] object HMSExtractor extends Logging {
           cur_part_vals += ""
         }
 
+        val emptyStorage = CatalogStorageFormat(None, None, None, None,
+            false, Map.empty[String, String].toMap)
         partitions.foreach { partition =>
           var diff = false
           // partition spec to build
@@ -352,9 +363,8 @@ private[spark] object HMSExtractor extends Logging {
                 new_part_spec.put(table.partitionColumnNames(j), partition.
                   spec(table.partitionColumnNames(j)))
                 cur_part_vals(j) = partition.spec(table.partitionColumnNames(j))
-                val new_part = new CatalogTablePartition(new_part_spec.toMap,
-                  partition.storage, partition.parameters, partition.createTime,
-                  partition.lastAccessTime, partition.stats)
+                val new_part = CatalogTablePartition(new_part_spec.toMap,
+                  emptyStorage, Map.empty[String, String].toMap, partition.createTime, -1, None)
                 val partition_json = hms_ext.getPartitionJson(table, new_part, 0)
                 file_writer.write(partition_json + "\n")
               }

@@ -32,10 +32,12 @@ private[spark] object TreeExternalCatalogTester {
     val tables = external_catalog.listTables(db_name)
     printf(tables.toString() + "\n")
     val table = external_catalog.getTable(db_name, tables(0))
-    val expr = sqlParser.parseExpression("part_field1 > 'part_field1=950'")
-    print(expr.toJSON + "\n")
-    val partitions = external_catalog.listPartitionsByFilter(db_name, tables(0), Seq(expr))
+//    val expr = sqlParser.parseExpression("part_field1 > 'part_field1=950'")
+//    print(expr.toJSON + "\n")
+    val partitions = external_catalog.listPartitions(db_name, tables(0), None)
     partitions.foreach{ partition => printf(partition.toString + "\n")}
+    val files = external_catalog.listFiles(table, None)
+    files.foreach{ file => printf(file.toString + "\n")}
 //    printf(table.toString() + "\n")
 //    val partitions = external_catalog.listPartitions(db_name, tables(0))
 //    partitions.foreach{ partition => printf(partition.toString + "\n")}
