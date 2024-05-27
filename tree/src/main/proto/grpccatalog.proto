@@ -350,6 +350,7 @@ message ExecuteQueryResponse {
 message CommitRequest {
     uint64 txn_id = 1;
     repeated Write write_set = 2;
+    optional bool abort = 3;
 }
 
 /*

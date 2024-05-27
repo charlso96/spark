@@ -1144,6 +1144,11 @@ private[spark] class TreeExternalCatalog extends Logging {
       true
     }
     else if (txn.txnMode == TxnMode.TXN_MODE_READ_WRITE && txn.commitRequest.isDefined) {
+      // abort if txn is not ok
+      if (!txn.isOK()) {
+        txn.commitRequest.get.setAbort(true)
+      }
+
       val commitResponse = catalogStub.commit(txn.commitRequest.get.build)
       commitResponse.getSuccess
     }

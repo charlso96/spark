@@ -2,7 +2,6 @@
 // source: grpccatalog.proto
 package org.apache.spark.tree.grpc;
 
-
 public final class Grpccatalog {
     private Grpccatalog() {}
     public static void registerAllExtensions(
@@ -7552,7 +7551,7 @@ public final class Grpccatalog {
     }
     /**
      * <pre>
-     * A predicate is either an expression, oid, or a wildcard.
+     * A predicate is either an expression or a wildcard.
      * </pre>
      *
      * Protobuf type {@code Predicate}
@@ -7882,7 +7881,7 @@ public final class Grpccatalog {
         }
         /**
          * <pre>
-         * A predicate is either an expression, oid, or a wildcard.
+         * A predicate is either an expression or a wildcard.
          * </pre>
          *
          * Protobuf type {@code Predicate}
@@ -22851,6 +22850,17 @@ public final class Grpccatalog {
          */
         Grpccatalog.WriteOrBuilder getWriteSetOrBuilder(
                 int index);
+
+        /**
+         * <code>optional bool abort = 3;</code>
+         * @return Whether the abort field is set.
+         */
+        boolean hasAbort();
+        /**
+         * <code>optional bool abort = 3;</code>
+         * @return The abort.
+         */
+        boolean getAbort();
     }
     /**
      * <pre>
@@ -22897,6 +22907,7 @@ public final class Grpccatalog {
                             Grpccatalog.CommitRequest.class, Grpccatalog.CommitRequest.Builder.class);
         }
 
+        private int bitField0_;
         public static final int TXN_ID_FIELD_NUMBER = 1;
         private long txnId_ = 0L;
         /**
@@ -22949,6 +22960,25 @@ public final class Grpccatalog {
             return writeSet_.get(index);
         }
 
+        public static final int ABORT_FIELD_NUMBER = 3;
+        private boolean abort_ = false;
+        /**
+         * <code>optional bool abort = 3;</code>
+         * @return Whether the abort field is set.
+         */
+        @java.lang.Override
+        public boolean hasAbort() {
+            return ((bitField0_ & 0x00000001) != 0);
+        }
+        /**
+         * <code>optional bool abort = 3;</code>
+         * @return The abort.
+         */
+        @java.lang.Override
+        public boolean getAbort() {
+            return abort_;
+        }
+
         private byte memoizedIsInitialized = -1;
         @java.lang.Override
         public final boolean isInitialized() {
@@ -22969,6 +22999,9 @@ public final class Grpccatalog {
             for (int i = 0; i < writeSet_.size(); i++) {
                 output.writeMessage(2, writeSet_.get(i));
             }
+            if (((bitField0_ & 0x00000001) != 0)) {
+                output.writeBool(3, abort_);
+            }
             getUnknownFields().writeTo(output);
         }
 
@@ -22985,6 +23018,10 @@ public final class Grpccatalog {
             for (int i = 0; i < writeSet_.size(); i++) {
                 size += com.google.protobuf.CodedOutputStream
                         .computeMessageSize(2, writeSet_.get(i));
+            }
+            if (((bitField0_ & 0x00000001) != 0)) {
+                size += com.google.protobuf.CodedOutputStream
+                        .computeBoolSize(3, abort_);
             }
             size += getUnknownFields().getSerializedSize();
             memoizedSize = size;
@@ -23005,6 +23042,11 @@ public final class Grpccatalog {
                     != other.getTxnId()) return false;
             if (!getWriteSetList()
                     .equals(other.getWriteSetList())) return false;
+            if (hasAbort() != other.hasAbort()) return false;
+            if (hasAbort()) {
+                if (getAbort()
+                        != other.getAbort()) return false;
+            }
             if (!getUnknownFields().equals(other.getUnknownFields())) return false;
             return true;
         }
@@ -23022,6 +23064,11 @@ public final class Grpccatalog {
             if (getWriteSetCount() > 0) {
                 hash = (37 * hash) + WRITE_SET_FIELD_NUMBER;
                 hash = (53 * hash) + getWriteSetList().hashCode();
+            }
+            if (hasAbort()) {
+                hash = (37 * hash) + ABORT_FIELD_NUMBER;
+                hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
+                        getAbort());
             }
             hash = (29 * hash) + getUnknownFields().hashCode();
             memoizedHashCode = hash;
@@ -23164,6 +23211,7 @@ public final class Grpccatalog {
                     writeSetBuilder_.clear();
                 }
                 bitField0_ = (bitField0_ & ~0x00000002);
+                abort_ = false;
                 return this;
             }
 
@@ -23213,6 +23261,12 @@ public final class Grpccatalog {
                 if (((from_bitField0_ & 0x00000001) != 0)) {
                     result.txnId_ = txnId_;
                 }
+                int to_bitField0_ = 0;
+                if (((from_bitField0_ & 0x00000004) != 0)) {
+                    result.abort_ = abort_;
+                    to_bitField0_ |= 0x00000001;
+                }
+                result.bitField0_ |= to_bitField0_;
             }
 
             @java.lang.Override
@@ -23288,6 +23342,9 @@ public final class Grpccatalog {
                         }
                     }
                 }
+                if (other.hasAbort()) {
+                    setAbort(other.getAbort());
+                }
                 this.mergeUnknownFields(other.getUnknownFields());
                 onChanged();
                 return this;
@@ -23332,6 +23389,11 @@ public final class Grpccatalog {
                                 }
                                 break;
                             } // case 18
+                            case 24: {
+                                abort_ = input.readBool();
+                                bitField0_ |= 0x00000004;
+                                break;
+                            } // case 24
                             default: {
                                 if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                                     done = true; // was an endgroup tag
@@ -23619,6 +23681,46 @@ public final class Grpccatalog {
                     writeSet_ = null;
                 }
                 return writeSetBuilder_;
+            }
+
+            private boolean abort_ ;
+            /**
+             * <code>optional bool abort = 3;</code>
+             * @return Whether the abort field is set.
+             */
+            @java.lang.Override
+            public boolean hasAbort() {
+                return ((bitField0_ & 0x00000004) != 0);
+            }
+            /**
+             * <code>optional bool abort = 3;</code>
+             * @return The abort.
+             */
+            @java.lang.Override
+            public boolean getAbort() {
+                return abort_;
+            }
+            /**
+             * <code>optional bool abort = 3;</code>
+             * @param value The abort to set.
+             * @return This builder for chaining.
+             */
+            public Builder setAbort(boolean value) {
+
+                abort_ = value;
+                bitField0_ |= 0x00000004;
+                onChanged();
+                return this;
+            }
+            /**
+             * <code>optional bool abort = 3;</code>
+             * @return This builder for chaining.
+             */
+            public Builder clearAbort() {
+                bitField0_ = (bitField0_ & ~0x00000004);
+                abort_ = false;
+                onChanged();
+                return this;
             }
             @java.lang.Override
             public final Builder setUnknownFields(
@@ -27114,52 +27216,52 @@ public final class Grpccatalog {
                         "\006\n\004_vidB\t\n\007_txn_idB\016\n\014_return_type\"x\n\024Ex" +
                         "ecuteQueryResponse\022\020\n\010leaf_obj\030\001 \001(\010\022\021\n\t" +
                         "base_only\030\002 \001(\010\022\013\n\003vid\030\003 \001(\004\022\020\n\010obj_list" +
-                        "\030\004 \001(\014\022\022\n\005abort\030\005 \001(\010H\000\210\001\001B\010\n\006_abort\":\n\r" +
+                        "\030\004 \001(\014\022\022\n\005abort\030\005 \001(\010H\000\210\001\001B\010\n\006_abort\"X\n\r" +
                         "CommitRequest\022\016\n\006txn_id\030\001 \001(\004\022\031\n\twrite_s" +
-                        "et\030\002 \003(\0132\006.Write\"!\n\016CommitResponse\022\017\n\007su" +
-                        "ccess\030\001 \001(\010\"=\n\020PreCommitRequest\022\016\n\006txn_i" +
-                        "d\030\001 \001(\004\022\031\n\twrite_set\030\002 \003(\0132\006.Write\"$\n\021Pr" +
-                        "eCommitResponse\022\017\n\007success\030\001 \001(\010\"#\n\017Bulk" +
-                        "LoadRequest\022\020\n\010obj_list\030\001 \003(\014\"=\n\020BulkLoa" +
-                        "dResponse\022\017\n\007success\030\001 \001(\010\022\013\n\003vid\030\002 \001(\004\022" +
-                        "\013\n\003err\030\003 \003(\t*:\n\007TxnMode\022\026\n\022TXN_MODE_READ" +
-                        "_ONLY\020\000\022\027\n\023TXN_MODE_READ_WRITE\020\001*c\n\tWrit" +
-                        "eType\022\022\n\016WRITE_TYPE_ADD\020\000\022\025\n\021WRITE_TYPE_" +
-                        "REMOVE\020\001\022\024\n\020WRITE_TYPE_MERGE\020\002\022\025\n\021WRITE_" +
-                        "TYPE_UPDATE\020\003*\227\001\n\013ObjTypeName\022\032\n\026OBJ_TYP" +
-                        "E_NAME_DATABASE\020\000\022\027\n\023OBJ_TYPE_NAME_TABLE" +
-                        "\020\001\022\033\n\027OBJ_TYPE_NAME_PARTITION\020\002\022\035\n\031OBJ_T" +
-                        "YPE_NAME_FILE_OBJECT\020\003\022\027\n\023OBJ_TYPE_NAME_" +
-                        "OTHER\020\004*\034\n\010Wildcard\022\020\n\014WILDCARD_ANY\020\000*\246\002" +
-                        "\n\nExprOpType\022\025\n\021EXPR_OP_TYPE_LESS\020\000\022\030\n\024E" +
-                        "XPR_OP_TYPE_GREATER\020\001\022\027\n\023EXPR_OP_TYPE_EQ" +
-                        "UALS\020\002\022\034\n\030EXPR_OP_TYPE_LESS_EQUALS\020\003\022\037\n\033" +
-                        "EXPR_OP_TYPE_GREATER_EQUALS\020\004\022\033\n\027EXPR_OP" +
-                        "_TYPE_NOT_EQUALS\020\005\022\025\n\021EXPR_OP_TYPE_PLUS\020" +
-                        "\006\022\026\n\022EXPR_OP_TYPE_MINUS\020\007\022\025\n\021EXPR_OP_TYP" +
-                        "E_MULT\020\010\022\024\n\020EXPR_OP_TYPE_DIV\020\t\022\026\n\022EXPR_O" +
-                        "P_TYPE_OTHER\020\n*U\n\014ExprBoolType\022\025\n\021EXPR_B" +
-                        "OOL_TYPE_OR\020\000\022\026\n\022EXPR_BOOL_TYPE_AND\020\001\022\026\n" +
-                        "\022EXPR_BOOL_TYPE_NOT\020\002*\313\001\n\rExprConstType\022" +
-                        "\032\n\026EXPR_CONST_TYPE_STRING\020\000\022\027\n\023EXPR_CONS" +
-                        "T_TYPE_INT\020\001\022\030\n\024EXPR_CONST_TYPE_LONG\020\002\022\032" +
-                        "\n\026EXPR_CONST_TYPE_DOUBLE\020\003\022\033\n\027EXPR_CONST" +
-                        "_TYPE_BOOLEAN\020\004\022\030\n\024EXPR_CONST_TYPE_DATE\020" +
-                        "\005\022\030\n\024EXPR_CONST_TYPE_NULL\020\0062\223\004\n\013GRPCCata" +
-                        "log\022/\n\010StartTxn\022\020.StartTxnRequest\032\021.Star" +
-                        "tTxnResponse\022/\n\010Snapshot\022\020.SnapshotReque" +
-                        "st\032\021.SnapshotResponse\022&\n\005Clone\022\r.CloneRe" +
-                        "quest\032\016.CloneResponse\0225\n\nGetGarbage\022\022.Ge" +
-                        "tGarbageRequest\032\023.GetGarbageResponse\022;\n\014" +
-                        "ClearGarbage\022\024.ClearGarbageRequest\032\025.Cle" +
-                        "arGarbageResponse\0225\n\nDefineType\022\022.Define" +
-                        "TypeRequest\032\023.DefineTypeResponse\022=\n\014Exec" +
-                        "uteQuery\022\024.ExecuteQueryRequest\032\025.Execute" +
-                        "QueryResponse0\001\022)\n\006Commit\022\016.CommitReques" +
-                        "t\032\017.CommitResponse\0222\n\tPreCommit\022\021.PreCom" +
-                        "mitRequest\032\022.PreCommitResponse\0221\n\010BulkLo" +
-                        "ad\022\020.BulkLoadRequest\032\021.BulkLoadResponse(" +
-                        "\001b\006proto3"
+                        "et\030\002 \003(\0132\006.Write\022\022\n\005abort\030\003 \001(\010H\000\210\001\001B\010\n\006" +
+                        "_abort\"!\n\016CommitResponse\022\017\n\007success\030\001 \001(" +
+                        "\010\"=\n\020PreCommitRequest\022\016\n\006txn_id\030\001 \001(\004\022\031\n" +
+                        "\twrite_set\030\002 \003(\0132\006.Write\"$\n\021PreCommitRes" +
+                        "ponse\022\017\n\007success\030\001 \001(\010\"#\n\017BulkLoadReques" +
+                        "t\022\020\n\010obj_list\030\001 \003(\014\"=\n\020BulkLoadResponse\022" +
+                        "\017\n\007success\030\001 \001(\010\022\013\n\003vid\030\002 \001(\004\022\013\n\003err\030\003 \003" +
+                        "(\t*:\n\007TxnMode\022\026\n\022TXN_MODE_READ_ONLY\020\000\022\027\n" +
+                        "\023TXN_MODE_READ_WRITE\020\001*c\n\tWriteType\022\022\n\016W" +
+                        "RITE_TYPE_ADD\020\000\022\025\n\021WRITE_TYPE_REMOVE\020\001\022\024" +
+                        "\n\020WRITE_TYPE_MERGE\020\002\022\025\n\021WRITE_TYPE_UPDAT" +
+                        "E\020\003*\227\001\n\013ObjTypeName\022\032\n\026OBJ_TYPE_NAME_DAT" +
+                        "ABASE\020\000\022\027\n\023OBJ_TYPE_NAME_TABLE\020\001\022\033\n\027OBJ_" +
+                        "TYPE_NAME_PARTITION\020\002\022\035\n\031OBJ_TYPE_NAME_F" +
+                        "ILE_OBJECT\020\003\022\027\n\023OBJ_TYPE_NAME_OTHER\020\004*\034\n" +
+                        "\010Wildcard\022\020\n\014WILDCARD_ANY\020\000*\246\002\n\nExprOpTy" +
+                        "pe\022\025\n\021EXPR_OP_TYPE_LESS\020\000\022\030\n\024EXPR_OP_TYP" +
+                        "E_GREATER\020\001\022\027\n\023EXPR_OP_TYPE_EQUALS\020\002\022\034\n\030" +
+                        "EXPR_OP_TYPE_LESS_EQUALS\020\003\022\037\n\033EXPR_OP_TY" +
+                        "PE_GREATER_EQUALS\020\004\022\033\n\027EXPR_OP_TYPE_NOT_" +
+                        "EQUALS\020\005\022\025\n\021EXPR_OP_TYPE_PLUS\020\006\022\026\n\022EXPR_" +
+                        "OP_TYPE_MINUS\020\007\022\025\n\021EXPR_OP_TYPE_MULT\020\010\022\024" +
+                        "\n\020EXPR_OP_TYPE_DIV\020\t\022\026\n\022EXPR_OP_TYPE_OTH" +
+                        "ER\020\n*U\n\014ExprBoolType\022\025\n\021EXPR_BOOL_TYPE_O" +
+                        "R\020\000\022\026\n\022EXPR_BOOL_TYPE_AND\020\001\022\026\n\022EXPR_BOOL" +
+                        "_TYPE_NOT\020\002*\313\001\n\rExprConstType\022\032\n\026EXPR_CO" +
+                        "NST_TYPE_STRING\020\000\022\027\n\023EXPR_CONST_TYPE_INT" +
+                        "\020\001\022\030\n\024EXPR_CONST_TYPE_LONG\020\002\022\032\n\026EXPR_CON" +
+                        "ST_TYPE_DOUBLE\020\003\022\033\n\027EXPR_CONST_TYPE_BOOL" +
+                        "EAN\020\004\022\030\n\024EXPR_CONST_TYPE_DATE\020\005\022\030\n\024EXPR_" +
+                        "CONST_TYPE_NULL\020\0062\223\004\n\013GRPCCatalog\022/\n\010Sta" +
+                        "rtTxn\022\020.StartTxnRequest\032\021.StartTxnRespon" +
+                        "se\022/\n\010Snapshot\022\020.SnapshotRequest\032\021.Snaps" +
+                        "hotResponse\022&\n\005Clone\022\r.CloneRequest\032\016.Cl" +
+                        "oneResponse\0225\n\nGetGarbage\022\022.GetGarbageRe" +
+                        "quest\032\023.GetGarbageResponse\022;\n\014ClearGarba" +
+                        "ge\022\024.ClearGarbageRequest\032\025.ClearGarbageR" +
+                        "esponse\0225\n\nDefineType\022\022.DefineTypeReques" +
+                        "t\032\023.DefineTypeResponse\022=\n\014ExecuteQuery\022\024" +
+                        ".ExecuteQueryRequest\032\025.ExecuteQueryRespo" +
+                        "nse0\001\022)\n\006Commit\022\016.CommitRequest\032\017.Commit" +
+                        "Response\0222\n\tPreCommit\022\021.PreCommitRequest" +
+                        "\032\022.PreCommitResponse\0221\n\010BulkLoad\022\020.BulkL" +
+                        "oadRequest\032\021.BulkLoadResponse(\001b\006proto3"
         };
         descriptor = com.google.protobuf.Descriptors.FileDescriptor
                 .internalBuildGeneratedFileFrom(descriptorData,
@@ -27332,7 +27434,7 @@ public final class Grpccatalog {
         internal_static_CommitRequest_fieldAccessorTable = new
                 com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
                 internal_static_CommitRequest_descriptor,
-                new java.lang.String[] { "TxnId", "WriteSet", });
+                new java.lang.String[] { "TxnId", "WriteSet", "Abort", "Abort", });
         internal_static_CommitResponse_descriptor =
                 getDescriptor().getMessageTypes().get(28);
         internal_static_CommitResponse_fieldAccessorTable = new
