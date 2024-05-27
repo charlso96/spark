@@ -26,6 +26,7 @@ import scala.collection.mutable.ArrayBuffer
 
 import com.google.protobuf.ByteString
 import io.grpc.ManagedChannelBuilder
+import org.bson.BsonArray
 import org.bson.BsonBinaryWriter
 import org.bson.BsonDocument
 import org.bson.BsonType
@@ -40,9 +41,9 @@ import org.json4s.JsonAST.JObject
 import org.json4s.JsonAST.JString
 import org.json4s.NoTypeHints
 import org.json4s.jackson.Serialization
-import org.json4s.jackson.Serialization.read
 
 import org.apache.spark.internal.Logging
+import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.catalog._
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.util.DateFormatter
@@ -55,6 +56,8 @@ import org.apache.spark.unsafe.types.UTF8String
 
 // custom serde that should be much faster than jackson
 private[spark] object TreeSerde {
+  private val jsonWriterSetting : JsonWriterSettings = JsonWriterSettings.builder().
+    outputMode(JsonMode.RELAXED).build()
 
   // serializer for CatalogTablePartition
   def toBson(objPath : String, partition : CatalogTablePartition): BasicOutputBuffer = {
@@ -288,6 +291,83 @@ private[spark] object TreeSerde {
     writer.writeEndDocument()
   }
 
+  def toCatalogDatabase(bsonDocument : BsonDocument) : CatalogDatabase = {
+    val name = bsonDocument.get("name").asString().getValue
+    val description = bsonDocument.get("description").asString.getValue
+    val locationUri = new URI(bsonDocument.get("locationUri").asString.getValue)
+    val properties = toMap(bsonDocument.get("properties").asDocument())
+
+    CatalogDatabase(name, description, locationUri, properties)
+  }
+
+  def toCatalogTable(bsonDocument : BsonDocument) : CatalogTable = {
+    val identifier = toTableIdentifier(bsonDocument.get("identifier").asDocument())
+    val tableType = toCatalogTableType(bsonDocument.get("tableType").asDocument())
+    val storage = toCatalogStorageFormat(bsonDocument.get("storage").asDocument())
+    val schema = toStructType(bsonDocument.get("schema").asDocument())
+    val provider = {
+      val providerBson = bsonDocument.get("provider")
+      if (providerBson != null) {
+        Some(providerBson.asString().getValue)
+      }
+      else {
+        None
+      }
+    }
+    val partitionColumnNames = toSeq(bsonDocument.get("partitionColumnNames").asArray())
+    val bucketSpec = None
+    val owner = bsonDocument.get("owner").asString().getValue
+    val createTime = bsonDocument.get("createTime").asNumber().longValue()
+    val lastAccessTime = bsonDocument.get("lastAccessTime").asNumber().longValue()
+    val createVersion = bsonDocument.get("createVersion").asString().getValue
+    val properties = toMap(bsonDocument.get("properties").asDocument())
+    val stats : Option[CatalogStatistics] = {
+      val statsBson = bsonDocument.get("stats")
+      if (statsBson != null) {
+        Some(toCatalogStatistics(statsBson.asDocument()))
+      }
+      else {
+        None
+      }
+    }
+    val viewText = {
+      val viewTextBson = bsonDocument.get("viewText")
+      if (viewTextBson != null) {
+        Some(viewTextBson.asString().getValue)
+      }
+      else {
+        None
+      }
+    }
+    val comment = {
+      val commentBson = bsonDocument.get("comment")
+      if (commentBson != null) {
+        Some(commentBson.asString().getValue)
+      }
+      else {
+        None
+      }
+    }
+    val unsupportedFeatures = toSeq(bsonDocument.get("unsupportedFeatures").asArray())
+    val tracksPartitionsInCatalog = bsonDocument.get("tracksPartitionsInCatalog").asBoolean()
+      .getValue
+    val schemaPreservesCase = bsonDocument.get("schemaPreservesCase").asBoolean().getValue
+    val ignoredProperties = toMap(bsonDocument.get("ignoredProperties").asDocument())
+    val viewOriginalText = {
+      val viewOriginalTextBson = bsonDocument.get("viewOriginalText")
+      if (viewOriginalTextBson != null) {
+        Some(viewOriginalTextBson.asString().getValue)
+      }
+      else {
+        None
+      }
+    }
+    CatalogTable(identifier, tableType, storage, schema, provider, partitionColumnNames,
+      bucketSpec, owner, createTime, lastAccessTime, createVersion, properties, stats, viewText,
+      comment, unsupportedFeatures, tracksPartitionsInCatalog, schemaPreservesCase,
+      ignoredProperties, viewOriginalText)
+  }
+
   // deserializer for CatalogTablePartition
   def toCatalogTablePartition(bsonDocument : BsonDocument) : CatalogTablePartition = {
     val spec = toMap(bsonDocument.get("spec").asDocument())
@@ -326,6 +406,50 @@ private[spark] object TreeSerde {
 
     CatalogTableFile(storage, partitionValues, size, modificationTime, stats, tags)
 
+  }
+
+  private def toTableIdentifier(bsonDocument: BsonDocument) : TableIdentifier = {
+    val table = bsonDocument.get("table").asString().getValue
+    val database = {
+      val databaseBson = bsonDocument.get("database")
+      if (databaseBson != null) {
+        Some(databaseBson.asString().getValue)
+      }
+      else {
+        None
+      }
+    }
+    val catalog = {
+      val catalogBson = bsonDocument.get("catalog")
+      if (catalogBson != null) {
+        Some(catalogBson.asString().getValue)
+      }
+      else {
+        None
+      }
+    }
+    TableIdentifier(table, database, catalog)
+  }
+
+  private def toCatalogTableType(bsonDocument : BsonDocument) : CatalogTableType = {
+    val name = bsonDocument.get("name").asString().getValue
+    name match {
+      case "EXTERNAL" => CatalogTableType.EXTERNAL
+      case "MANAGED" => CatalogTableType.MANAGED
+      case "VIEW" => CatalogTableType.VIEW
+    }
+  }
+
+  private def toStructType(bsonDocument: BsonDocument): StructType = {
+    DataType.fromJson(bsonDocument.toJson(jsonWriterSetting)).asInstanceOf[StructType]
+  }
+
+  private def toSeq(bsonArray : BsonArray) : Seq[String] = {
+    val seq = ArrayBuffer[String]()
+    bsonArray.forEach { elem =>
+      seq.append(elem.asString().getValue)
+    }
+    seq
   }
 
   def toCatalogStorageFormat(bsonDocument : BsonDocument) : CatalogStorageFormat = {
@@ -479,10 +603,20 @@ private[spark] object TreeSerde {
   }
 }
 
-private[spark] case class TreeTxn(txnMode : TxnMode,
-                                  txnId : Option[Long] = None,
-                                  vid : Option[Long] = None,
-                                  commitRequest : Option[CommitRequest.Builder] = None) {
+// Proxy for keeping track of txn state
+private[spark] class TreeTxn(val txnMode : TxnMode,
+                             val txnId : Option[Long] = None,
+                             val vid : Option[Long] = None,
+                             val commitRequest : Option[CommitRequest.Builder] = None) {
+  private var aborted : Boolean = false
+
+  def setAbort(abort : Boolean): Unit = {
+    aborted = abort
+  }
+
+  def isOK(): Boolean = {
+    !aborted
+  }
 
 }
 
@@ -497,14 +631,19 @@ private[spark] class TreeExternalCatalog extends Logging {
     outputMode(JsonMode.RELAXED).build()
 
   private class BufIterator(buf : Array[Byte]) {
-    private var elem_size_ = ByteBuffer.wrap(buf.slice(0, Integer.BYTES)).
-      order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt
-    private var data_idx_ = Integer.BYTES
-    private var next_ = Integer.BYTES + elem_size_
+    private var elem_size_ = 0
+    private var data_idx_ = 0
+    private var next_ = 0
     private var valid_ = false
 
-    if (next_ <= buf.size) {
-      valid_ = true
+    if (buf.length >= Integer.BYTES) {
+      elem_size_ = ByteBuffer.wrap(buf.slice(0, Integer.BYTES)).
+        order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt
+      data_idx_ = Integer.BYTES
+      next_ = Integer.BYTES + elem_size_
+      if (next_ <= buf.size) {
+        valid_ = true
+      }
     }
 
     def next() : Boolean = {
@@ -935,10 +1074,13 @@ private[spark] class TreeExternalCatalog extends Logging {
     }
   }
 
-  private def toCatalogTablePartitions(queryResponses: java.util.Iterator[ExecuteQueryResponse])
+  private def toCatalogTablePartitions(queryResponses: java.util.Iterator[ExecuteQueryResponse],
+                                       txn : Option[TreeTxn])
       : Seq[CatalogTablePartition] = {
     val partitions = ArrayBuffer[CatalogTablePartition]()
+    var lastResponse : Option[ExecuteQueryResponse] = None
     queryResponses.forEachRemaining(response => {
+      lastResponse = Some(response)
       val responseBuf = response.getObjList().toByteArray()
       val bufIter = new BufIterator(responseBuf)
       while (bufIter.valid()) {
@@ -948,14 +1090,21 @@ private[spark] class TreeExternalCatalog extends Logging {
         bufIter.next()
       }
     })
+    if (txn.isDefined && lastResponse.isDefined && lastResponse.get.hasAbort) {
+      txn.get.setAbort(lastResponse.get.getAbort)
+      commit(txn.get)
+    }
     partitions
   }
 
 
-  private def toCatalogTableFiles(queryResponses: java.util.Iterator[ExecuteQueryResponse])
+  private def toCatalogTableFiles(queryResponses: java.util.Iterator[ExecuteQueryResponse],
+                                  txn : Option[TreeTxn])
   : Seq[CatalogTableFile] = {
     val files = ArrayBuffer[CatalogTableFile]()
+    var lastResponse : Option[ExecuteQueryResponse] = None
     queryResponses.forEachRemaining(response => {
+      lastResponse = Some(response)
       val responseBuf = response.getObjList().toByteArray()
       val bufIter = new BufIterator(responseBuf)
       while (bufIter.valid()) {
@@ -965,6 +1114,10 @@ private[spark] class TreeExternalCatalog extends Logging {
         bufIter.next()
       }
     })
+    if (txn.isDefined && lastResponse.isDefined && lastResponse.get.hasAbort) {
+      txn.get.setAbort(lastResponse.get.getAbort)
+      commit(txn.get)
+    }
     files
   }
 
@@ -973,11 +1126,12 @@ private[spark] class TreeExternalCatalog extends Logging {
     val startTxnResponse = catalogStub.startTxn(StartTxnRequest.newBuilder()
         .setTxnMode(txnMode).build)
     if (startTxnResponse.getSuccess && txnMode == TxnMode.TXN_MODE_READ_ONLY) {
-      Some(TreeTxn(txnMode, None, Some(startTxnResponse.getVid), None))
+      Some(new TreeTxn(txnMode, None, Some(startTxnResponse.getVid), None))
     }
     else if (startTxnResponse.getSuccess && txnMode == TxnMode.TXN_MODE_READ_WRITE) {
       val txnId = startTxnResponse.getTxnId
-      Some(TreeTxn(txnMode, Some(txnId), None, Some(CommitRequest.newBuilder().setTxnId(txnId))))
+      Some(new TreeTxn(txnMode, Some(txnId), None, Some(CommitRequest.newBuilder()
+        .setTxnId(txnId))))
     }
     else {
       None
@@ -1008,16 +1162,26 @@ private[spark] class TreeExternalCatalog extends Logging {
 
     val queryResponses = catalogStub.executeQuery(queryRequest.build())
     if (queryResponses.hasNext) {
-      val queryResponse = queryResponses.next()
-      val responseBuf = queryResponse.getObjList().toByteArray()
-      val bufIter = new BufIterator(responseBuf)
-      val jsonStr = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
-        responseBuf.size - bufIter.dataIdx()).toJson(json_writer_setting)
-      // iterate over every query response
+      val firstResponse = queryResponses.next()
+      var lastResponse = firstResponse
       while (queryResponses.hasNext) {
-        queryResponses.next()
+        lastResponse = queryResponses.next()
       }
-      read[CatalogDatabase](jsonStr)
+      if (txn.isDefined && lastResponse.hasAbort) {
+        txn.get.setAbort(lastResponse.getAbort)
+        commit(txn.get)
+      }
+
+      val responseBuf = firstResponse.getObjList().toByteArray()
+      val bufIter = new BufIterator(responseBuf)
+      if (bufIter.valid()) {
+        val DBBson = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
+          responseBuf.size - bufIter.dataIdx())
+        TreeSerde.toCatalogDatabase(DBBson)
+      }
+      else {
+        null
+      }
     }
     else {
       null
@@ -1034,15 +1198,28 @@ private[spark] class TreeExternalCatalog extends Logging {
 
     val queryResponses = catalogStub.executeQuery(queryRequest.build())
     if (queryResponses.hasNext) {
-      val queryResponse = queryResponses.next()
-      val responseBuf = queryResponse.getObjList().toByteArray()
-      val bufIter = new BufIterator(responseBuf)
-      val jsonStr = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
-        responseBuf.size - bufIter.dataIdx()).toJson(json_writer_setting)
+      val firstResponse = queryResponses.next()
+      var lastResponse = firstResponse
       while (queryResponses.hasNext) {
-        queryResponses.next()
+        lastResponse = queryResponses.next()
       }
-      read[CatalogTable](jsonStr)
+      // if part of a txn session, check if txn has been aborted
+      if (txn.isDefined && lastResponse.hasAbort) {
+        txn.get.setAbort(lastResponse.getAbort)
+        // commit to deallocate resources on the server side
+        commit(txn.get)
+      }
+
+      val responseBuf = firstResponse.getObjList().toByteArray()
+      val bufIter = new BufIterator(responseBuf)
+      if (bufIter.valid()) {
+        val tableBson = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
+          responseBuf.size - bufIter.dataIdx())
+        TreeSerde.toCatalogTable(tableBson)
+      }
+      else {
+        null
+      }
     }
     else {
       null
@@ -1060,7 +1237,9 @@ private[spark] class TreeExternalCatalog extends Logging {
 
     val queryResponses = catalogStub.executeQuery(queryRequest.build())
     val tables = ArrayBuffer[String]()
-    queryResponses.forEachRemaining(response => {
+    var lastResponse : Option[ExecuteQueryResponse] = None
+    queryResponses.forEachRemaining { response =>
+      lastResponse = Some(response)
       val responseBuf = response.getObjList().toByteArray()
       val bufIter = new BufIterator(responseBuf)
       while (bufIter.valid()) {
@@ -1070,14 +1249,23 @@ private[spark] class TreeExternalCatalog extends Logging {
           asString().getValue()
         bufIter.next()
       }
-    })
+    }
+    if (txn.isDefined && lastResponse.isDefined && lastResponse.get.hasAbort) {
+      txn.get.setAbort(lastResponse.get.getAbort)
+      commit(txn.get)
+    }
     tables
   }
 
   def listPartitions(db: String, table: String, txn : Option[TreeTxn]):
       Seq[CatalogTablePartition] = {
     val tableObj = getTable(db, table, txn)
-    listPartitions(tableObj, txn)
+    if (tableObj != null) {
+      listPartitions(tableObj, txn)
+    }
+    else {
+      ArrayBuffer[CatalogTablePartition]()
+    }
   }
 
   def listPartitions(table: CatalogTable, txn : Option[TreeTxn]):
@@ -1102,7 +1290,7 @@ private[spark] class TreeExternalCatalog extends Logging {
       setTxnId(queryRequest, txn)
 
       val queryResponses = catalogStub.executeQuery(queryRequest.build())
-      toCatalogTablePartitions(queryResponses)
+      toCatalogTablePartitions(queryResponses, txn)
     }
   }
 
@@ -1110,7 +1298,12 @@ private[spark] class TreeExternalCatalog extends Logging {
                              txn : Option[TreeTxn]):
       Seq[CatalogTablePartition] = {
     val tableObj = getTable(db, table, txn)
-    listPartitionsByFilter(tableObj, predicates, txn)
+    if (tableObj != null) {
+      listPartitionsByFilter(tableObj, predicates, txn)
+    }
+    else {
+      ArrayBuffer[CatalogTablePartition]()
+    }
   }
 
   def listPartitionsByFilter(table: CatalogTable, predicates: Seq[Expression],
@@ -1122,7 +1315,7 @@ private[spark] class TreeExternalCatalog extends Logging {
     setTxnId(queryRequest, txn)
 
     val queryResponses = catalogStub.executeQuery(queryRequest.build())
-    toCatalogTablePartitions(queryResponses)
+    toCatalogTablePartitions(queryResponses, txn)
   }
 
   def getPartition(table: CatalogTable, spec: Map[String, String], txn : Option[TreeTxn] = None):
@@ -1147,13 +1340,18 @@ private[spark] class TreeExternalCatalog extends Logging {
     setTxnId(queryRequest, txn)
 
     val queryResponses = catalogStub.executeQuery(queryRequest.build)
-    toCatalogTablePartitions(queryResponses)
+    toCatalogTablePartitions(queryResponses, txn)
   }
 
   def listFilesByFilter(db: String, table: String, predicates: Seq[Expression],
                         txn : Option[TreeTxn]): Seq[CatalogTableFile] = {
     val tableObj = getTable(db, table, txn)
-    listFilesByFilter(tableObj, predicates, txn)
+    if (tableObj != null) {
+      listFilesByFilter(tableObj, predicates, txn)
+    }
+    else {
+      ArrayBuffer[CatalogTableFile]()
+    }
   }
 
   def listFilesByFilter(table: CatalogTable, predicates: Seq[Expression],
@@ -1167,7 +1365,17 @@ private[spark] class TreeExternalCatalog extends Logging {
     setTxnId(queryRequest, txn)
 
     val queryResponses = catalogStub.executeQuery(queryRequest.build())
-    toCatalogTableFiles(queryResponses)
+    toCatalogTableFiles(queryResponses, txn)
+  }
+
+  def listFiles(db: String, table: String, txn : Option[TreeTxn]): Seq[CatalogTableFile] = {
+    val tableObj = getTable(db, table, txn)
+    if (tableObj != null) {
+      listFiles(tableObj, txn)
+    }
+    else {
+      ArrayBuffer[CatalogTableFile]()
+    }
   }
 
   def listFiles(table : CatalogTable, txn : Option[TreeTxn]) : Seq[CatalogTableFile] = {
@@ -1185,7 +1393,7 @@ private[spark] class TreeExternalCatalog extends Logging {
     setTxnId(queryRequest, txn)
 
     val queryResponses = catalogStub.executeQuery(queryRequest.build())
-    toCatalogTableFiles(queryResponses)
+    toCatalogTableFiles(queryResponses, txn)
   }
 
   def listFiles(table : CatalogTable, partition : CatalogTablePartition,
@@ -1217,7 +1425,7 @@ private[spark] class TreeExternalCatalog extends Logging {
     setTxnId(queryRequest, txn)
 
     val queryResponses = catalogStub.executeQuery(queryRequest.build)
-    toCatalogTableFiles(queryResponses)
+    toCatalogTableFiles(queryResponses, txn)
   }
 
   def createPartition(table : CatalogTable, partition : CatalogTablePartition,
@@ -1260,8 +1468,15 @@ private[spark] class TreeExternalCatalog extends Logging {
       val queryResponses = catalogStub.executeQuery(queryRequest.build)
       partExists = queryResponses.hasNext
       if (partExists) {
+        var lastResponse : Option[ExecuteQueryResponse] = None
         while (queryResponses.hasNext) {
-          queryResponses.next()
+          lastResponse = Some(queryResponses.next())
+        }
+        // if aborted, commit to deallocate resource on the server side
+        if (lastResponse.get.hasAbort) {
+          newTxn.get.setAbort(lastResponse.get.getAbort)
+          commit(newTxn.get)
+          return Some(false)
         }
       }
       else {
