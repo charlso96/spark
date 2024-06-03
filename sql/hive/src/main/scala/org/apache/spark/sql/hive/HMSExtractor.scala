@@ -304,19 +304,15 @@ private[spark] class HMSClientExt(args: Seq[String], env:
     file_path.slice(file_path.lastIndexOf('/'), file_path.size)
   }
 
+  // precondition: corresponding partition val exists
   private def getPartitionVal(partitionColumn: StructField,
                               partitionSpec : CatalogTypes.TablePartitionSpec): String = {
-    val partitionValOption = partitionSpec.get(partitionColumn.name)
+    val partitionVal = partitionSpec.get(partitionColumn.name).get
     if (partitionColumn.dataType.isInstanceOf[IntegralType]) {
-      if (partitionValOption.isDefined) {
-        "%012d".format(partitionValOption.get.toLong)
-      }
-      else {
-        "DEFAULT"
-      }
+      "%012d".format(partitionVal.toLong)
     }
     else {
-      partitionValOption.getOrElse("DEFAULT")
+      partitionVal
     }
   }
 
