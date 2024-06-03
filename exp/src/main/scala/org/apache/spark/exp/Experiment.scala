@@ -19,9 +19,13 @@ package org.apache.spark.exp
 
 import java.io.File
 import java.io.FileWriter
+import java.lang.Runnable
+import java.net.URI
 import java.time.Duration
 import java.time.Instant
 import java.util.Locale
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable.HashMap
@@ -31,8 +35,7 @@ import org.apache.spark.SparkConf
 import org.apache.spark.SparkContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.catalog.CatalogTableFile
-import org.apache.spark.sql.catalyst.catalog.CatalogTablePartition
+import org.apache.spark.sql.catalyst.catalog.{CatalogStorageFormat, CatalogTableFile, CatalogTablePartition}
 import org.apache.spark.sql.connector.catalog.DelegatingCatalogExtension
 import org.apache.spark.sql.connector.catalog.Identifier
 import org.apache.spark.sql.delta.catalog.DeltaTableV2
@@ -41,6 +44,7 @@ import org.apache.spark.sql.execution.datasources.HadoopFsRelation
 import org.apache.spark.sql.hive.HMSClientExt
 import org.apache.spark.sql.internal.StaticSQLConf.CATALOG_IMPLEMENTATION
 import org.apache.spark.tree.TreeExternalCatalog
+import org.apache.spark.tree.grpc.Grpccatalog.TxnMode
 import org.apache.spark.util.Utils
 
 
@@ -182,6 +186,9 @@ private[spark] object Experiment {
     }
     if (args(0) == "test") {
       testCreatePartition(args(1))
+    }
+    if (args(0) == "writeExp") {
+      writeExp(args(1), args(2).toInt, args(3).toInt)
     }
   }
 
@@ -408,6 +415,83 @@ private[spark] object Experiment {
     exp_util.tree.listFiles(tree_table, None).foreach{ file =>
       printf(file.toString + "\n")
     }
+
+  }
+
+  private class writeCycle(tree : TreeExternalCatalog, db : String, table : String,
+                           partValues : Map[String, String], iters : Int,
+                           totalNumSuccess : AtomicLong)
+    extends Runnable {
+    override def run(): Unit = {
+      var numSuccess = 0
+      for (i <- 0 until iters) {
+        val txn = tree.startTransaction(TxnMode.TXN_MODE_READ_WRITE)
+        val tableObj = tree.getTable(db, table, txn)
+        if (tableObj == null || !txn.get.isOK) {
+          return
+        }
+
+        val immutablePartValues = partValues.toMap
+        val files = ArrayBuffer[CatalogTableFile]()
+        for (i <- 0 until 10) {
+          val filePath = tableObj.location.getPath + "/" + UUID.randomUUID()
+         val storage = CatalogStorageFormat(Some(new URI(filePath)), tableObj.storage.inputFormat,
+            tableObj.storage.outputFormat, tableObj.storage.serde, false, tableObj.properties)
+          files.append(CatalogTableFile(storage, immutablePartValues, 100))
+        }
+
+        val partition = tree.getPartition(tableObj, immutablePartValues, txn)
+        if (!txn.get.isOK) {
+          return
+        }
+        if (partition.isEmpty) {
+          val newPartition = CatalogTablePartition(immutablePartValues, tableObj.storage)
+          tree.createPartition(tableObj, newPartition, txn)
+        }
+
+        tree.addFiles(tableObj, files, txn)
+        val success = tree.commit(txn.get)
+
+        if (success) {
+          numSuccess += 1
+        }
+
+      }
+      totalNumSuccess.addAndGet(numSuccess)
+    }
+  }
+
+  private def writeExp(db_str : String, numThreads : Int, iters : Int) : Unit = {
+    val tree = new TreeExternalCatalog()
+    tree.getDatabase(db_str)
+    val treeTables = tree.listTables(db_str)
+    val treeTable = tree.getTable(db_str, treeTables(0))
+    val threads = ArrayBuffer[Thread]()
+
+    // TODO generate a sequence of partition values to randomly choose from
+    val partitionValue : Map[String, String] = scala.collection.mutable.Map()
+    treeTable.partitionColumnNames.foreach{ columnName =>
+      partitionValue.put(columnName, "10000")
+    }
+
+    val numSuccess = new AtomicLong(0)
+    for (i <- 0 until numThreads) {
+      threads.append(new Thread(new writeCycle(new TreeExternalCatalog(), db_str,
+        treeTables(0), partitionValue, iters, numSuccess)))
+    }
+
+    val startTime = Instant.now()
+    threads.foreach { thread =>
+      thread.start()
+    }
+
+    threads.foreach { thread =>
+      thread.join()
+    }
+    val endTime = Instant.now()
+
+    printf("Number of Successes:" + numSuccess.toString + "\n")
+    printf("Duration: " + Duration.between(startTime, endTime).toMillis().toString + " ms\n")
 
   }
 }
