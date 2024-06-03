@@ -37,7 +37,7 @@ import org.json4s.jackson.Serialization
 import org.apache.spark.SparkConf
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.catalog.{CatalogTypes, CatalogStorageFormat, CatalogTable, CatalogTableFile, CatalogTablePartition}
+import org.apache.spark.sql.catalyst.catalog.{CatalogStorageFormat, CatalogTable, CatalogTableFile, CatalogTablePartition, CatalogTypes}
 import org.apache.spark.sql.types.{DataType, IntegralType, Metadata, StructField, StructType}
 import org.apache.spark.util._
 
@@ -288,9 +288,12 @@ private[spark] class HMSClientExt(args: Seq[String], env:
 
   private def getPartId(table : CatalogTable, partition : CatalogTablePartition): String = {
     var partId = ""
+
     table.partitionSchema.foreach { partitionColumn =>
-      val partitionVal = getPartitionVal(partitionColumn, partition.spec)
-      partId = partId + "/" +  partitionColumn.name + "=" + partitionVal
+      if (partition.spec.contains(partitionColumn.name)) {
+        val partitionVal = getPartitionVal(partitionColumn, partition.spec)
+        partId = partId + "/" + partitionColumn.name + "=" + partitionVal
+      }
     }
 
     partId

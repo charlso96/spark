@@ -159,8 +159,10 @@ private[spark] object TreeSerde {
   def getPartId(table : CatalogTable, partition : CatalogTablePartition): String = {
     var partId = ""
     table.partitionSchema.foreach { partitionColumn =>
-      val partitionVal = getPartitionVal(partitionColumn, partition.spec)
-      partId = partId + "/" +  partitionColumn.name + "=" + partitionVal
+      if (partition.spec.contains(partitionColumn.name)) {
+        val partitionVal = getPartitionVal(partitionColumn, partition.spec)
+        partId = partId + "/" +  partitionColumn.name + "=" + partitionVal
+      }
     }
 
     partId
