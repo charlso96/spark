@@ -158,22 +158,38 @@ private[spark] object TreeSerde {
 
   def getPartId(table : CatalogTable, partition : CatalogTablePartition): String = {
     var partId = ""
-    table.partitionColumnNames.foreach { colName =>
-      if (partition.spec.get(colName).isDefined) {
-        partId = partId + "/" +  colName + "=" + partition.spec.get(colName).getOrElse("DEFAULT")
-      }
+    table.partitionSchema.foreach { partitionColumn =>
+      val partitionVal = getPartitionVal(partitionColumn, partition.spec)
+      partId = partId + "/" +  partitionColumn.name + "=" + partitionVal
     }
+
     partId
   }
 
   def getFileId(table : CatalogTable, file : CatalogTableFile): String = {
     var fileId = ""
-    table.partitionColumnNames.foreach { colName =>
-      fileId = fileId + "/" +  colName + "=" + file.partitionValues.get(colName)
-        .getOrElse("DEFAULT")
+    table.partitionSchema.foreach { partitionColumn =>
+      val partitionVal = getPartitionVal(partitionColumn, file.partitionValues)
+      fileId = fileId + "/" +  partitionColumn.name + "=" + partitionVal
     }
     val filePath = file.storage.locationUri.get.toString
     fileId + filePath.slice(filePath.lastIndexOf('/'), filePath.size)
+  }
+
+  // helper function to encode int into 12 char long string
+  def getPartitionVal(partitionColumn: StructField, partitionSpec : Map[String, String]): String = {
+    val partitionValOption = partitionSpec.get(partitionColumn.name)
+    if (partitionColumn.dataType.isInstanceOf[IntegralType]) {
+      if (partitionValOption.isDefined) {
+        "%012d".format(partitionValOption.get.toLong)
+      }
+      else {
+        "DEFAULT"
+      }
+    }
+    else {
+      partitionValOption.getOrElse("DEFAULT")
+    }
   }
 
   def appendBson(writer : BsonBinaryWriter, storage : CatalogStorageFormat) : Unit = {
@@ -1140,7 +1156,7 @@ private[spark] class TreeExternalCatalog extends Logging {
 
   // commits the given txn and returns true if successful
   def commit(txn: TreeTxn) : Boolean = {
-    if (txn.txnMode == TxnMode.TXN_MODE_READ_ONLY) {
+    if (txn.txnMode == TxnMode.TXN_MODE_READ_ONLY && txn.isOK()) {
       true
     }
     else if (txn.txnMode == TxnMode.TXN_MODE_READ_WRITE && txn.commitRequest.isDefined) {
@@ -1330,15 +1346,18 @@ private[spark] class TreeExternalCatalog extends Logging {
     val pathExprBuilder = PathExpr.newBuilder().addPreds(dbPred).addPreds(tablePred)
 
     val partTypeExpr = constructBinaryExpr("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "partition")
-    table.partitionColumnNames.foreach({ column_name =>
+    table.partitionSchema.foreach { partitionColumn =>
+      val partitionVal = TreeSerde.getPartitionVal(partitionColumn, spec)
+
       val andBuilder = ExprBool.newBuilder().setOpType(ExprBoolType.EXPR_BOOL_TYPE_AND)
       andBuilder.addArgs(constructBinaryExpr("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS,
-        column_name + "=" + spec.get(column_name).getOrElse("DEFAULT")))
+        partitionColumn.name + "=" + partitionVal))
       andBuilder.addArgs(partTypeExpr)
 
       pathExprBuilder.addPreds(Predicate.newBuilder()
         .setExprNode(ExprNode.newBuilder().setExprBool(andBuilder)))
-    })
+
+    }
 
     val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(pathExprBuilder.build())
         .setBaseOnly(true).setReturnType(1)
@@ -1409,20 +1428,30 @@ private[spark] class TreeExternalCatalog extends Logging {
 
     val partTypeExpr = constructBinaryExpr("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "partition")
     val partTypePred = Predicate.newBuilder().setExprNode(partTypeExpr).build
-    table.partitionColumnNames.foreach({ column_name =>
-      if (partition.spec.contains(column_name)) {
+    table.partitionSchema.foreach { partitionColumn =>
+      val partitionValOption = partition.spec.get(partitionColumn.name)
+      if (partitionValOption.isDefined) {
+        val partitionVal = {
+          if (partitionColumn.dataType.isInstanceOf[IntegralType]) {
+            "%012d".format(partitionValOption.get.toLong)
+          }
+          else {
+            partitionValOption.get
+          }
+        }
         val andBuilder = ExprBool.newBuilder().setOpType(ExprBoolType.EXPR_BOOL_TYPE_AND)
         andBuilder.addArgs(constructBinaryExpr("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS,
-          column_name + "=" + partition.spec.get(column_name).get))
+          partitionColumn.name + "=" + partitionVal))
         andBuilder.addArgs(partTypeExpr)
 
         pathExprBuilder.addPreds(Predicate.newBuilder()
           .setExprNode(ExprNode.newBuilder().setExprBool(andBuilder)))
+
       }
       else {
         pathExprBuilder.addPreds(partTypePred)
       }
-    })
+    }
 
     val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(pathExprBuilder.
         addPreds(Predicate.newBuilder().setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build()).
@@ -1455,13 +1484,16 @@ private[spark] class TreeExternalCatalog extends Logging {
 
     var partExists = false
     val partitionColumnNames = table.partitionColumnNames.to[mutable.ArrayBuffer]
+    val partitionSchema = table.partitionSchema
     // check if the partition exists at each level from bottom to top
     while (!partExists && !partitionColumnNames.isEmpty) {
       val pathExprBuilder = PathExpr.newBuilder().addPreds(dbPred).addPreds(tablePred)
-      partitionColumnNames.foreach{ columnName =>
+      for (i <- 0 until partitionColumnNames.size) {
+        val partitionColumn = partitionSchema(i)
+        val partitionVal = TreeSerde.getPartitionVal(partitionColumn, partition.spec)
         val andBuilder = ExprBool.newBuilder().setOpType(ExprBoolType.EXPR_BOOL_TYPE_AND)
         andBuilder.addArgs(constructBinaryExpr("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS,
-          columnName + "=" + partition.spec.get(columnName).getOrElse("DEFAULT")))
+          partitionColumn.name + "=" + partitionVal))
         andBuilder.addArgs(partTypeExpr)
         pathExprBuilder.addPreds(Predicate.newBuilder()
           .setExprNode(ExprNode.newBuilder().setExprBool(andBuilder)))
