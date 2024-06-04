@@ -103,25 +103,58 @@ object Experiment3 {
         joinTableIndices.foreach{ tableIndex =>
           joinTableJsons.append(tablesJson.get(tableIndex))
         }
-
-        // read operation
-        if (dataGen.nextInt(1, totalRatio) <= rwRatio(0)) {
-          val txn = tree.startTransaction(TxnMode.TXN_MODE_READ_ONLY)
-          scanTables(joinTableJsons, txn)
-          if (!tree.commit(txn.get)) {
-            numAborts += 1
+        // randomly generated "ranks" , representing min and max partition value of table scan
+        val joinTableRanks = ArrayBuffer[List[Int]]()
+        joinTableJsons.foreach{ tableJson =>
+          if (tableJson.get("partitionType").asText() == "INT") {
+            val partitionMax = tableJson.get("partitionMax").asInt()
+            joinTableRanks.append(List(dataGen.nextZipf(partitionMax, 1),
+              dataGen.nextZipf(partitionMax, 1)))
+          }
+          else {
+            val minDate = LocalDate.parse(tableJson.get("partitionMin").asText())
+            val maxDate = LocalDate.parse(tableJson.get("partitionMax").asText())
+            val numDays = (ChronoUnit.DAYS.between(minDate, maxDate) + 1).toInt
+            joinTableRanks.append(List(dataGen.nextZipf(numDays, 1), dataGen.nextZipf(numDays, 1)))
           }
 
         }
-        // write operation
-        else {
-          val txn = tree.startTransaction(TxnMode.TXN_MODE_READ_WRITE)
-          val destTableJson = joinTableJsons(joinTableJsons.size - 1)
-          joinTableJsons.remove(joinTableJsons.size - 1)
-          addBatch(destTableJson, joinTableJsons, txn)
-          if (!tree.commit(txn.get)) {
-            numAborts += 1
+
+        val read = dataGen.nextInt(1, totalRatio) <= rwRatio(0)
+        var retries = 0
+        var success = false
+
+        // The last table is the destination table of addbatch
+        val destTableJson = joinTableJsons(joinTableJsons.size - 1)
+        val destTableRank = joinTableRanks(joinTableRanks.size - 1)
+        // tries 3 times until succeeds
+        while (retries < 3 && !success) {
+          // read operation
+          if (read) {
+            val txn = tree.startTransaction(TxnMode.TXN_MODE_READ_ONLY)
+            scanTables(joinTableJsons, joinTableRanks, txn)
+            if (tree.commit(txn.get)) {
+              success = true
+            }
           }
+          // write operation
+          else {
+            if (retries == 0) {
+              joinTableJsons.remove(joinTableJsons.size - 1)
+              joinTableRanks.remove(joinTableRanks.size - 1)
+            }
+
+            val txn = tree.startTransaction(TxnMode.TXN_MODE_READ_WRITE)
+            addBatch(destTableJson, destTableRank, joinTableJsons, joinTableRanks, txn)
+            if (tree.commit(txn.get)) {
+              success = true
+            }
+          }
+          retries += 1
+        }
+
+        if (!success) {
+          numAborts += 1
         }
 
       }
@@ -130,8 +163,11 @@ object Experiment3 {
 
     }
 
-    private def scanTables(joinTableJsons : Seq[JsonNode], txn: Option[TreeTxn]) : Unit = {
-      joinTableJsons.foreach { tableJson =>
+    private def scanTables(joinTableJsons : Seq[JsonNode], joinTableRanks: Seq[List[Int]],
+                           txn: Option[TreeTxn]) : Unit = {
+      for (i <- 0 until joinTableJsons.size) {
+        val tableJson = joinTableJsons(i)
+        val ranks = joinTableRanks(i)
         val table = tree.getTable(db, tableJson.get("name").asText(), txn)
         if (table == null) {
           if (txn.get.isOK()) {
@@ -142,42 +178,38 @@ object Experiment3 {
         }
 
         val filters = ArrayBuffer[Expression]()
-        // assume single level partition for now
-        table.partitionSchema.foreach { partitionCol =>
-          if (partitionCol.dataType.isInstanceOf[IntegralType]) {
-            val partitionMax = tableJson.get("partitionMax").asInt()
-            val ranks = List(dataGen.nextZipf(partitionMax, 1), dataGen.nextZipf(partitionMax, 1))
-            val minPartVal = "%012d".format(partitionMax - ranks.max + 1)
-            val maxPartVal = "%012d".format(partitionMax - ranks.min + 1)
-            val partitionPred = f"${partitionCol.name} >= '${partitionCol.name}=$minPartVal' and " +
-              f"${partitionCol.name} <= 'partitionCol.name=$maxPartVal'"
-            filters.append(sqlParser.parseExpression(partitionPred))
-          }
-          if (partitionCol.dataType == DateType) {
-            val minDate = LocalDate.parse(tableJson.get("partitionMin").asText())
-            val maxDate = LocalDate.parse(tableJson.get("partitionMax").asText())
-            val numDays = (ChronoUnit.DAYS.between(minDate, maxDate) + 1).toInt
-            val ranks = List(dataGen.nextZipf(numDays, 1), dataGen.nextZipf(numDays, 1))
-            val minPartVal = maxDate.minusDays(ranks.max - 1).toString
-            val maxPartVal = maxDate.minusDays(ranks.min - 1).toString
-            val partitionPred = f"${partitionCol.name} >= '${partitionCol.name}=$minPartVal' and " +
-              f"${partitionCol.name} <= 'partitionCol.name=$maxPartVal'"
-            filters.append(sqlParser.parseExpression(partitionPred))
-          }
+        val partitionCol = table.partitionSchema(0)
+        if (partitionCol.dataType.isInstanceOf[IntegralType]) {
+          val partitionMax = tableJson.get("partitionMax").asInt()
+          val minPartVal = "%012d".format(partitionMax - ranks.max + 1)
+          val maxPartVal = "%012d".format(partitionMax - ranks.min + 1)
+          val partitionPred = f"${partitionCol.name} >= '${partitionCol.name}=$minPartVal' and " +
+            f"${partitionCol.name} <= 'partitionCol.name=$maxPartVal'"
+          filters.append(sqlParser.parseExpression(partitionPred))
+        }
+        else {
+          val maxDate = LocalDate.parse(tableJson.get("partitionMax").asText())
+          val minPartVal = maxDate.minusDays(ranks.max - 1).toString
+          val maxPartVal = maxDate.minusDays(ranks.min - 1).toString
+          val partitionPred = f"${partitionCol.name} >= '${partitionCol.name}=$minPartVal' and " +
+            f"${partitionCol.name} <= 'partitionCol.name=$maxPartVal'"
+          filters.append(sqlParser.parseExpression(partitionPred))
         }
         val fileList = tree.listFilesByFilter(table, filters, txn)
         if (!txn.get.isOK()) {
           return
         }
       }
+
     }
 
-    private def addBatch(destTableJson : JsonNode, joinTableJsons : Seq[JsonNode],
+    private def addBatch(destTableJson : JsonNode, destTableRank: List[Int],
+                         joinTableJsons : Seq[JsonNode], joinTableRanks: Seq[List[Int]],
                          txn: Option[TreeTxn]) : Unit = {
 
       if (!joinTableJsons.isEmpty) {
         // pick partition range for each table and scan each table
-        scanTables(joinTableJsons, txn)
+        scanTables(joinTableJsons, joinTableRanks, txn)
         if (!txn.get.isOK()) {
           return
         }
@@ -193,20 +225,19 @@ object Experiment3 {
       }
       // randomly pick the destination partition, using Zipf distribution
       val destPartSpec = scala.collection.mutable.Map[String, String]()
-      destTable.partitionSchema.foreach { partitionCol =>
-        // if integer type, partition with maximum value is most likely
-        if (partitionCol.dataType.isInstanceOf[IntegralType]) {
-          val partitionMax = destTableJson.get("partitionMax").asInt()
-          val rank = dataGen.nextZipf(partitionMax, 1)
-          destPartSpec.put(partitionCol.name, (partitionMax - rank + 1).toString)
-        }
-        // if date type, partition with most recent date is most likely
-        if (partitionCol.dataType == DateType) {
-          val minDate = LocalDate.parse(destTableJson.get("partitionMin").asText())
-          val maxDate = LocalDate.parse(destTableJson.get("partitionMax").asText())
-          val rank = dataGen.nextZipf((ChronoUnit.DAYS.between(minDate, maxDate) + 1).toInt, 1)
-          destPartSpec.put(partitionCol.name, maxDate.minusDays(rank - 1).toString)
-        }
+      val partitionCol = destTable.partitionSchema(0)
+
+      // if integer type, partition with maximum value is most likely
+      if (partitionCol.dataType.isInstanceOf[IntegralType]) {
+        val partitionMax = destTableJson.get("partitionMax").asInt()
+        val rank = destTableRank(0)
+        destPartSpec.put(partitionCol.name, (partitionMax - rank + 1).toString)
+      }
+      // if date type, partition with most recent date is most likely
+      if (partitionCol.dataType == DateType) {
+        val maxDate = LocalDate.parse(destTableJson.get("partitionMax").asText())
+        val rank = destTableRank(0)
+        destPartSpec.put(partitionCol.name, maxDate.minusDays(rank - 1).toString)
       }
 
       val immutableDestPartSpec = destPartSpec.toMap
