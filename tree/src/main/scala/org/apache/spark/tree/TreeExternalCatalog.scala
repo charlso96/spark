@@ -60,7 +60,8 @@ private[spark] object TreeSerde {
     outputMode(JsonMode.RELAXED).build()
 
   // serializer for CatalogTablePartition
-  def toBson(objPath : String, partition : CatalogTablePartition): BasicOutputBuffer = {
+  def toBson(objPath : String, table : CatalogTable,
+             partition : CatalogTablePartition): BasicOutputBuffer = {
     val outputBuffer = new BasicOutputBuffer()
     val writer = new BsonBinaryWriter(outputBuffer)
     writer.writeStartDocument()
@@ -83,7 +84,7 @@ private[spark] object TreeSerde {
     writer.writeInt64("lastAccessTime", partition.lastAccessTime)
     if (partition.stats.isDefined) {
       writer.writeName("stats")
-      appendBson(writer, partition.stats.get)
+      appendBson(writer, table, partition.stats.get)
     }
     writer.writeEndDocument()
 
@@ -92,7 +93,8 @@ private[spark] object TreeSerde {
   }
 
   // serializer for CatalogTableFile
-  def toBson(objPath: String, file : CatalogTableFile) : BasicOutputBuffer = {
+  def toBson(objPath: String, table: CatalogTable,
+             file : CatalogTableFile) : BasicOutputBuffer = {
     val outputBuffer = new BasicOutputBuffer()
     val writer = new BsonBinaryWriter(outputBuffer)
     writer.writeStartDocument()
@@ -113,7 +115,7 @@ private[spark] object TreeSerde {
     writer.writeInt64("modificationTime", file.modificationTime)
     if (file.stats.isDefined) {
       writer.writeName("stats")
-      appendBson(writer, file.stats.get)
+      appendBson(writer, table, file.stats.get)
     }
     writer.writeName("tags")
     appendBson(writer, file.tags)
@@ -136,6 +138,7 @@ private[spark] object TreeSerde {
     writer.writeEndDocument()
 
     writer.writeStartDocument("val")
+    writer.writeString("obj_type", "stats")
     writer.writeInt64("sizeInBytes", stats.sizeInBytes.toLong)
     if (stats.rowCount.isDefined) {
       writer.writeInt64("rowCount", stats.rowCount.get.toLong)
@@ -222,7 +225,9 @@ private[spark] object TreeSerde {
     writer.writeEndDocument()
   }
 
-  def appendBson(writer : BsonBinaryWriter, stats : CatalogStatistics) : Unit = {
+  // first type for statistics, which converts min and max to original data type
+  def appendBson(writer : BsonBinaryWriter, table : CatalogTable,
+                 stats : CatalogStatistics) : Unit = {
     writer.writeStartDocument()
     writer.writeInt64("sizeInBytes", stats.sizeInBytes.toLong)
     if (stats.rowCount.isDefined) {
@@ -230,10 +235,15 @@ private[spark] object TreeSerde {
     }
     writer.writeName("colStats")
     writer.writeStartDocument()
-    stats.colStats.foreach{ case (colName, colStat) =>
-      writer.writeName(colName)
-      appendBson(writer, colStat)
+
+    table.schema.fields.foreach{ field =>
+      val colStat = stats.colStats.get(field.name)
+      if (colStat.isDefined) {
+        writer.writeName(field.name)
+        appendBson(writer, field.dataType, colStat.get)
+      }
     }
+
     writer.writeEndDocument()
     writer.writeEndDocument()
   }
@@ -1538,7 +1548,7 @@ private[spark] class TreeExternalCatalog extends Logging {
           Map.empty, System.currentTimeMillis, -1, None)
       val objPath = "/" + table.identifier.database.get + "/" + table.identifier.table +
           TreeSerde.getPartId(table, parentPartition)
-      val partitionBson = TreeSerde.toBson(objPath, parentPartition)
+      val partitionBson = TreeSerde.toBson(objPath, table, parentPartition)
       commitRequest.addWriteSet(Write.newBuilder()
         .setType(WriteType.WRITE_TYPE_ADD)
         .setIsLeaf(false)
@@ -1549,7 +1559,7 @@ private[spark] class TreeExternalCatalog extends Logging {
 
     val objPath = "/" + table.identifier.database.get + "/" + table.identifier.table +
       TreeSerde.getPartId(table, partition)
-    val partitionBson = TreeSerde.toBson(objPath, partition)
+    val partitionBson = TreeSerde.toBson(objPath, table, partition)
     commitRequest.addWriteSet(Write.newBuilder()
       .setType(WriteType.WRITE_TYPE_ADD)
       .setIsLeaf(false)
@@ -1588,7 +1598,7 @@ private[spark] class TreeExternalCatalog extends Logging {
     files.foreach{ file =>
       val objPath = "/" + table.identifier.database.get + "/" + table.identifier.table +
         TreeSerde.getFileId(table, file)
-      val fileBson = TreeSerde.toBson(objPath, file)
+      val fileBson = TreeSerde.toBson(objPath, table, file)
       // TODO: add stats delta to the parent table and partitions
       commitRequest.addWriteSet(Write.newBuilder()
         .setType(WriteType.WRITE_TYPE_ADD)
