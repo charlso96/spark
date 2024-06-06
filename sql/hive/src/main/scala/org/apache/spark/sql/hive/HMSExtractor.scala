@@ -27,6 +27,11 @@ import scala.util.matching.Regex
 
 import org.apache.hadoop.fs.FileStatus
 import org.apache.hadoop.fs.Path
+import org.bson.BsonBinaryWriter
+import org.bson.RawBsonDocument
+import org.bson.io.BasicOutputBuffer
+import org.bson.json.JsonMode
+import org.bson.json.JsonWriterSettings
 import org.json4s.CustomSerializer
 import org.json4s.JsonAST.JNull
 import org.json4s.JsonAST.JObject
@@ -38,13 +43,16 @@ import org.apache.spark.SparkConf
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.catalog.{CatalogColumnStat, CatalogStatistics, CatalogStorageFormat, CatalogTable, CatalogTableFile, CatalogTablePartition, CatalogTypes}
-import org.apache.spark.sql.types.{DataType, IntegralType, Metadata, StructField, StructType}
+import org.apache.spark.sql.types._
 import org.apache.spark.util._
 
 
 private[spark] class HMSClientExt(args: Seq[String], env:
   scala.collection.immutable.Map[String, String] = sys.env)
   extends Logging {
+  private val jsonWriterSetting : JsonWriterSettings = JsonWriterSettings.builder().
+    outputMode(JsonMode.RELAXED).build()
+
   private implicit val formats = Serialization.formats(NoTypeHints) + new HiveURISerializer +
     new HiveDataTypeSerializer + new HiveMetadataSerializer + new HiveStructTypeSerializer
   var propertiesFile: String = null
@@ -241,30 +249,123 @@ private[spark] class HMSClientExt(args: Seq[String], env:
       : String = {
     val file_prefix = "{\"meta\": {\"paths\": [\"/" + table.identifier.database.get + "/" +
       table.identifier.table + getFileId(file) + "\"], \"obj_kind\": 2}, " +
-      "\"val\": {\"obj_type\": \"file\", "
+      "\"val\": {"
     val fileStorage = CatalogStorageFormat(Some(new URI(file.getPath.toString)),
       table.storage.inputFormat, table.storage.outputFormat, table.storage.serde,
       table.storage.compressed, table.storage.properties)
     val fileObj = CatalogTableFile(fileStorage, Map.empty[String, String].toMap,
       file.getLen, file.getModificationTime, stats, Map.empty[String, String].toMap)
     val json_brace : Regex = "\\{".r
-    val file_json = Serialization.write(fileObj)
-    json_brace.replaceFirstIn(file_json, file_prefix) + "}"
+
+    val outputBuffer = new BasicOutputBuffer()
+    val writer = new BsonBinaryWriter(outputBuffer)
+    writer.writeStartDocument()
+    writer.writeString("obj_type", "file")
+    writer.writeName("storage")
+    appendBson(writer, fileObj.storage)
+    writer.writeName("partitionValues")
+    appendBson(writer, fileObj.partitionValues)
+    writer.writeInt64("size", fileObj.size)
+    writer.writeInt64("modificationTime", fileObj.modificationTime)
+    if (fileObj.stats.isDefined) {
+      writer.writeName("stats")
+      appendBson(writer, table, fileObj.stats.get)
+    }
+    writer.writeName("tags")
+    appendBson(writer, fileObj.tags)
+    writer.writeEndDocument()
+
+    val fileJson = new RawBsonDocument(outputBuffer.getInternalBuffer, 0, outputBuffer.getPosition)
+      .toJson(jsonWriterSetting)
+    json_brace.replaceFirstIn(fileJson, file_prefix) + "}"
   }
+
   def getFileJson(table : CatalogTable, partition : CatalogTablePartition,
                   file : FileStatus, stats: Option[CatalogStatistics]) : String = {
     val file_prefix = "{\"meta\": {\"paths\": [\"/" + table.identifier.database.get + "/" +
       table.identifier.table + getPartId(table, partition.spec) + getFileId(file) +
       "\"], \"obj_kind\": 2}, " +
-      "\"val\": {\"obj_type\": \"file\", "
+      "\"val\": {"
     val fileStorage = CatalogStorageFormat(Some(new URI(file.getPath.toString)),
       partition.storage.inputFormat, partition.storage.outputFormat, partition.storage.serde,
       partition.storage.compressed, partition.storage.properties)
     val fileObj = CatalogTableFile(fileStorage, partition.spec,
       file.getLen, file.getModificationTime, stats, Map.empty[String, String].toMap)
     val json_brace : Regex = "\\{".r
-    val file_json = Serialization.write(fileObj)
-    json_brace.replaceFirstIn(file_json, file_prefix) + "}"
+
+    val outputBuffer = new BasicOutputBuffer()
+    val writer = new BsonBinaryWriter(outputBuffer)
+    writer.writeStartDocument()
+    writer.writeString("obj_type", "file")
+    writer.writeName("storage")
+    appendBson(writer, fileObj.storage)
+    writer.writeName("partitionValues")
+    appendBson(writer, fileObj.partitionValues)
+    writer.writeInt64("size", fileObj.size)
+    writer.writeInt64("modificationTime", fileObj.modificationTime)
+    if (fileObj.stats.isDefined) {
+      writer.writeName("stats")
+      appendBson(writer, table, fileObj.stats.get)
+    }
+    writer.writeName("tags")
+    appendBson(writer, fileObj.tags)
+    writer.writeEndDocument()
+
+    val fileJson = new RawBsonDocument(outputBuffer.getInternalBuffer, 0, outputBuffer.getPosition)
+      .toJson(jsonWriterSetting)
+    json_brace.replaceFirstIn(fileJson, file_prefix) + "}"
+
+  }
+
+  private def appendBson(writer : BsonBinaryWriter, storage : CatalogStorageFormat) : Unit = {
+    writer.writeStartDocument()
+    if (storage.locationUri.isDefined) {
+      writer.writeString("locationUri", storage.locationUri.get.toString)
+    }
+    if (storage.inputFormat.isDefined) {
+      writer.writeString("inputFormat", storage.inputFormat.get)
+    }
+    if (storage.outputFormat.isDefined) {
+      writer.writeString("outputFormat", storage.outputFormat.get)
+    }
+    if (storage.serde.isDefined) {
+      writer.writeString("serde", storage.serde.get)
+    }
+    writer.writeBoolean("compressed", storage.compressed)
+    writer.writeName("properties")
+    appendBson(writer, storage.properties)
+    writer.writeEndDocument()
+  }
+
+  private def appendBson(writer : BsonBinaryWriter, map :
+      scala.collection.immutable.Map[String, String]) : Unit = {
+    writer.writeStartDocument()
+    map.foreach{ case (key, value) =>
+      writer.writeString(key, value)
+    }
+    writer.writeEndDocument()
+  }
+
+  private def appendBson(writer : BsonBinaryWriter, table: CatalogTable,
+      stats : CatalogStatistics) : Unit = {
+    writer.writeStartDocument()
+    writer.writeInt64("sizeInBytes", stats.sizeInBytes.toLong)
+    if (stats.rowCount.isDefined) {
+      writer.writeInt64("rowCount", stats.rowCount.get.toLong)
+    }
+    writer.writeName("colStats")
+    writer.writeStartDocument()
+
+    table.schema.fields.foreach{ field =>
+      val colStat = stats.colStats.get(field.name)
+      if (colStat.isDefined) {
+        writer.writeName(field.name)
+        appendBson(writer, field.dataType, colStat.get)
+      }
+    }
+
+    writer.writeEndDocument()
+    writer.writeEndDocument()
   }
 
   def getStatsJson(table: CatalogTable, partitionSpec: CatalogTypes.TablePartitionSpec,
@@ -273,9 +374,77 @@ private[spark] class HMSClientExt(args: Seq[String], env:
       table.identifier.table + getPartId(table, partitionSpec) + "/stats" +
       "\"], \"obj_kind\": 0}, \"val\": {\"obj_type\": \"stats\", "
     val jsonBrace : Regex = "\\{".r
-    val statsJson = Serialization.write(stats)
+
+    val outputBuffer = new BasicOutputBuffer()
+    val writer = new BsonBinaryWriter(outputBuffer)
+      writer.writeStartDocument()
+      writer.writeInt64("sizeInBytes", stats.sizeInBytes.toLong)
+      if (stats.rowCount.isDefined) {
+        writer.writeInt64("rowCount", stats.rowCount.get.toLong)
+      }
+      writer.writeName("colStats")
+      writer.writeStartDocument()
+      table.schema.fields.foreach{ field =>
+        val colStat = stats.colStats.get(field.name)
+        if (colStat.isDefined) {
+          writer.writeName(field.name)
+          appendBson(writer, field.dataType, colStat.get)
+        }
+      }
+      writer.writeEndDocument()
+
+    writer.writeEndDocument()
+
+    val statsJson = new RawBsonDocument(outputBuffer.getInternalBuffer, 0, outputBuffer.getPosition)
+      .toJson(jsonWriterSetting)
     jsonBrace.replaceFirstIn(statsJson, statsPrefix) + "}"
   }
+
+  private def appendBson(writer : BsonBinaryWriter, dataType: DataType, colStat: CatalogColumnStat):
+  Unit = {
+    writer.writeStartDocument()
+    if (colStat.distinctCount.isDefined) {
+      writer.writeInt64("distinctCount", colStat.distinctCount.get.toLong)
+    }
+    if (colStat.min.isDefined) {
+      dataType match {
+        case ByteType => writer.writeInt32("min", colStat.min.get.toInt)
+        case ShortType => writer.writeInt32("min", colStat.min.get.toInt)
+        case IntegerType => writer.writeInt32("min", colStat.min.get.toInt)
+        case LongType => writer.writeInt64("min", colStat.min.get.toLong)
+        case BooleanType => writer.writeBoolean("min", colStat.min.get.toBoolean)
+        case FloatType => writer.writeDouble("min", colStat.min.get.toDouble)
+        case DoubleType => writer.writeDouble("min", colStat.min.get.toDouble)
+        case _ => writer.writeString("min", colStat.min.get)
+      }
+    }
+    if (colStat.max.isDefined) {
+      dataType match {
+        case ByteType => writer.writeInt32("max", colStat.max.get.toInt)
+        case ShortType => writer.writeInt32("max", colStat.max.get.toInt)
+        case IntegerType => writer.writeInt32("max", colStat.max.get.toInt)
+        case LongType => writer.writeInt64("max", colStat.max.get.toLong)
+        case BooleanType => writer.writeBoolean("max", colStat.max.get.toBoolean)
+        case FloatType => writer.writeDouble("max", colStat.max.get.toDouble)
+        case DoubleType => writer.writeDouble("max", colStat.max.get.toDouble)
+        case _ => writer.writeString("max", colStat.max.get)
+      }
+    }
+    if (colStat.nullCount.isDefined) {
+      writer.writeInt64("nullCount", colStat.nullCount.get.toLong)
+    }
+    if (colStat.avgLen.isDefined) {
+      writer.writeInt64("avgLen", colStat.avgLen.get)
+    }
+    if (colStat.maxLen.isDefined) {
+      writer.writeInt64("maxLen", colStat.maxLen.get)
+    }
+    // no support for histogram
+    writer.writeInt32("version", colStat.version)
+
+    writer.writeEndDocument()
+  }
+
 
   def mergeStats(table : CatalogTable, base : CatalogStatistics,
                  delta: CatalogStatistics): CatalogStatistics = {
@@ -383,7 +552,7 @@ private[spark] class HMSClientExt(args: Seq[String], env:
     val ifstream = fs.open(file.getPath)
     ifstream.readFully(dataBuf)
     val schema = table.schema
-    val record = dataBuf.map(_.toChar).mkString.split(",")
+    val record = dataBuf.map(_.toChar).mkString.replaceAll("[\n\r]", "").split(",")
     val colStats = Map.empty[String, CatalogColumnStat]
     record.indices.foreach{ i =>
       colStats.put(schema(i).name, CatalogColumnStat(None, Some(record(i)), Some(record(i)),
