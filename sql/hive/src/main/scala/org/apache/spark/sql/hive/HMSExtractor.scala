@@ -37,7 +37,7 @@ import org.json4s.jackson.Serialization
 import org.apache.spark.SparkConf
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.catalog.{CatalogStorageFormat, CatalogTable, CatalogTableFile, CatalogTablePartition, CatalogTypes}
+import org.apache.spark.sql.catalyst.catalog.{CatalogColumnStat, CatalogStatistics, CatalogStorageFormat, CatalogTable, CatalogTableFile, CatalogTablePartition, CatalogTypes}
 import org.apache.spark.sql.types.{DataType, IntegralType, Metadata, StructField, StructType}
 import org.apache.spark.util._
 
@@ -230,14 +230,15 @@ private[spark] class HMSClientExt(args: Seq[String], env:
   def getPartitionJson(table : CatalogTable, partition :
     CatalogTablePartition, obj_kind : Int) : String = {
     val partition_prefix = "{\"meta\": {\"paths\": [\"/" + table.identifier.database.get +
-      "/" + table.identifier.table + getPartId(table, partition) + "\"], \"obj_kind\": " +
+      "/" + table.identifier.table + getPartId(table, partition.spec) + "\"], \"obj_kind\": " +
       obj_kind.toString + "}," + "\"val\": {\"obj_type\": \"partition\", "
     val json_brace : Regex = "\\{".r
     val partition_json = Serialization.write(partition)
     json_brace.replaceFirstIn(partition_json, partition_prefix) + "}"
   }
 
-  def getFileJson(table : CatalogTable, file : FileStatus) : String = {
+  def getFileJson(table : CatalogTable, file : FileStatus, stats: Option[CatalogStatistics])
+      : String = {
     val file_prefix = "{\"meta\": {\"paths\": [\"/" + table.identifier.database.get + "/" +
       table.identifier.table + getFileId(file) + "\"], \"obj_kind\": 2}, " +
       "\"val\": {\"obj_type\": \"file\", "
@@ -245,25 +246,115 @@ private[spark] class HMSClientExt(args: Seq[String], env:
       table.storage.inputFormat, table.storage.outputFormat, table.storage.serde,
       table.storage.compressed, table.storage.properties)
     val fileObj = CatalogTableFile(fileStorage, Map.empty[String, String].toMap,
-      file.getLen, file.getModificationTime, None, Map.empty[String, String].toMap)
+      file.getLen, file.getModificationTime, stats, Map.empty[String, String].toMap)
     val json_brace : Regex = "\\{".r
     val file_json = Serialization.write(fileObj)
     json_brace.replaceFirstIn(file_json, file_prefix) + "}"
   }
   def getFileJson(table : CatalogTable, partition : CatalogTablePartition,
-                  file : FileStatus) : String = {
+                  file : FileStatus, stats: Option[CatalogStatistics]) : String = {
     val file_prefix = "{\"meta\": {\"paths\": [\"/" + table.identifier.database.get + "/" +
-      table.identifier.table + getPartId(table, partition) + getFileId(file) +
+      table.identifier.table + getPartId(table, partition.spec) + getFileId(file) +
       "\"], \"obj_kind\": 2}, " +
       "\"val\": {\"obj_type\": \"file\", "
     val fileStorage = CatalogStorageFormat(Some(new URI(file.getPath.toString)),
       partition.storage.inputFormat, partition.storage.outputFormat, partition.storage.serde,
       partition.storage.compressed, partition.storage.properties)
     val fileObj = CatalogTableFile(fileStorage, partition.spec,
-      file.getLen, file.getModificationTime, None, Map.empty[String, String].toMap)
+      file.getLen, file.getModificationTime, stats, Map.empty[String, String].toMap)
     val json_brace : Regex = "\\{".r
     val file_json = Serialization.write(fileObj)
     json_brace.replaceFirstIn(file_json, file_prefix) + "}"
+  }
+
+  def getStatsJson(table: CatalogTable, partitionSpec: CatalogTypes.TablePartitionSpec,
+                   stats: CatalogStatistics) : String = {
+    val statsPrefix = "{\"meta\": {\"paths\": [\"/" + table.identifier.database.get + "/" +
+      table.identifier.table + getPartId(table, partitionSpec) + "/stats" +
+      "\"], \"obj_kind\": 0}, \"val\": {\"obj_type\": \"stats\", "
+    val jsonBrace : Regex = "\\{".r
+    val statsJson = Serialization.write(stats)
+    jsonBrace.replaceFirstIn(statsJson, statsPrefix) + "}"
+  }
+
+  def mergeStats(table : CatalogTable, base : CatalogStatistics,
+                 delta: CatalogStatistics): CatalogStatistics = {
+    val sizeInBytes = base.sizeInBytes + delta.sizeInBytes
+    val rowCount = {
+      if (base.rowCount.isDefined && delta.rowCount.isDefined) {
+        Some(base.rowCount.get + delta.rowCount.get)
+      }
+      else {
+        None
+      }
+    }
+    val colStats = Map.empty[String, CatalogColumnStat]
+    table.schema.foreach { attr =>
+      val mergedColStat = mergeColStats(attr, base.colStats.get(attr.name),
+        delta.colStats.get(attr.name))
+      if (mergedColStat.isDefined) {
+        colStats.put(attr.name, mergedColStat.get)
+      }
+    }
+    CatalogStatistics(sizeInBytes, rowCount, colStats.toMap)
+  }
+
+  // we assume that delta is always more "complete" than base
+  private def mergeColStats(attr: StructField, base: Option[CatalogColumnStat],
+                            delta: Option[CatalogColumnStat]) : Option[CatalogColumnStat] = {
+
+    if (base.isDefined) {
+      if (delta.isDefined) {
+        val min = {
+          if (base.get.min.isDefined && delta.get.min.isDefined) {
+            if (attr.dataType.isInstanceOf[IntegralType]) {
+              Some(base.get.min.get.toInt.min(delta.get.min.get.toInt).toString)
+            }
+            // simple string comparison takes care of both string and dates
+            else {
+              Some(if (base.get.min.get < delta.get.min.get) base.get.min.get
+                else delta.get.min.get)
+            }
+          }
+          else {
+            None
+          }
+        }
+        val max = {
+          if (base.get.max.isDefined && delta.get.max.isDefined) {
+            if (attr.dataType.isInstanceOf[IntegralType]) {
+              Some(base.get.max.get.toInt.max(delta.get.max.get.toInt).toString)
+            }
+            // simple string comparison takes care of both string and dates
+            else {
+              Some(if (base.get.max.get > delta.get.max.get) base.get.max.get
+                else delta.get.max.get)
+            }
+          }
+          else {
+            None
+          }
+        }
+        val nullCount = {
+          if (base.get.nullCount.isDefined && delta.get.nullCount.isDefined) {
+            Some(base.get.nullCount.get + delta.get.nullCount.get)
+          }
+          else {
+            None
+          }
+        }
+        Some(CatalogColumnStat(None, min, max, nullCount, None, None, None, 1))
+      }
+      else {
+        None
+      }
+    }
+    else if (delta.isDefined) {
+      delta
+    }
+    else {
+      None
+    }
   }
 
   def listTables(db_name : String) : Seq[String] = {
@@ -285,13 +376,28 @@ private[spark] class HMSClientExt(args: Seq[String], env:
     val fs = partition_path.getFileSystem(hadoopConf)
     fs.listStatus(partition_path).toSeq
   }
+  // TODO: we only assume 1 row per file for now
+  def extractStats(table : CatalogTable, file : FileStatus): CatalogStatistics = {
+    val fs = file.getPath.getFileSystem(hadoopConf)
+    val dataBuf: Array[Byte] = new Array[Byte](file.getLen.toInt)
+    val ifstream = fs.open(file.getPath)
+    ifstream.readFully(dataBuf)
+    val schema = table.schema
+    val record = dataBuf.map(_.toChar).mkString.split(",")
+    val colStats = Map.empty[String, CatalogColumnStat]
+    record.indices.foreach{ i =>
+      colStats.put(schema(i).name, CatalogColumnStat(None, Some(record(i)), Some(record(i)),
+        Some(0), None, None, None, 1))
+    }
+    CatalogStatistics(file.getLen, Some(1), colStats.toMap)
+  }
 
-  private def getPartId(table : CatalogTable, partition : CatalogTablePartition): String = {
+  private def getPartId(table : CatalogTable, partitionSpec : CatalogTypes.TablePartitionSpec)
+      : String = {
     var partId = ""
-
     table.partitionSchema.foreach { partitionColumn =>
-      if (partition.spec.contains(partitionColumn.name)) {
-        val partitionVal = getPartitionVal(partitionColumn, partition.spec)
+      if (partitionSpec.contains(partitionColumn.name)) {
+        val partitionVal = getPartitionVal(partitionColumn, partitionSpec)
         partId = partId + "/" + partitionColumn.name + "=" + partitionVal
       }
     }
@@ -325,11 +431,6 @@ private[spark] object HMSExtractor extends Logging {
   def main(args: Array[String]): Unit = {
 
     val hms_ext = new HMSClientExt(args.toSeq)
-    /**
-     * OK, just get a single table for now...
-     * OK, don't worry about statistics for now...
-     */
-
     val db_name = args(0)
     val file_writer = new FileWriter(new File(args(1)))
     // write the db object
@@ -339,13 +440,17 @@ private[spark] object HMSExtractor extends Logging {
     val table_names = hms_ext.listTables(db_name)
     table_names.foreach { table_name =>
       val table = hms_ext.getTable(db_name, table_name)
+      var tableStats = CatalogStatistics(BigInt(0), Some(BigInt(0)),
+          Map.empty[String, CatalogColumnStat].toMap)
       // non-partitioned table
       if (table.partitionColumnNames.isEmpty) {
         val table_json = hms_ext.getTableJson(table, 1)
         file_writer.write(table_json + "\n")
         val files = hms_ext.listFiles(table)
         files.foreach { file =>
-          val file_json = hms_ext.getFileJson(table, file)
+          val file_stats = hms_ext.extractStats(table, file)
+          tableStats = hms_ext.mergeStats(table, tableStats, file_stats)
+          val file_json = hms_ext.getFileJson(table, file, Some(file_stats))
           file_writer.write(file_json + "\n")
         }
       }
@@ -355,32 +460,53 @@ private[spark] object HMSExtractor extends Logging {
         file_writer.write(table_json + "\n")
         val partitions = hms_ext.listPartitions(db_name, table_name)
           .sortWith( compPartition(table.partitionColumnNames, _, _) )
-
+        // array for keeping track of current partition value at each level
         val cur_part_vals = new ArrayBuffer[String]
         table.partitionColumnNames.foreach { part_col =>
           cur_part_vals += ""
         }
+        // array for keeping track of current statistics at each level
+        val cur_part_stats = new ArrayBuffer[CatalogStatistics]
 
         val emptyStorage = CatalogStorageFormat(None, None, None, None,
             false, Map.empty[String, String].toMap)
         partitions.foreach { partition =>
           var diff = false
-          // partition spec to build
+          // new partition spec to build
           val new_part_spec = Map.empty[String, String]
+          // previous partition spec for which statistics have to be flushed before new partition
+          // is added
+          val prev_part_spec = Map.empty[String, String]
           table.partitionColumnNames.indices.foreach { i =>
             new_part_spec.put(table.partitionColumnNames(i), partition.
               spec(table.partitionColumnNames(i)))
-            if (!diff &&
-              partition.spec(table.partitionColumnNames(i)) != cur_part_vals(i)) {
+            prev_part_spec.put(table.partitionColumnNames(i), cur_part_vals(i))
+            if (!diff && partition.spec(table.partitionColumnNames(i)) != cur_part_vals(i)) {
               diff = true
               table.partitionColumnNames.indices.slice(i,
                 table.partitionColumnNames.size - 1).foreach { j =>
                 new_part_spec.put(table.partitionColumnNames(j), partition.
                   spec(table.partitionColumnNames(j)))
+                prev_part_spec.put(table.partitionColumnNames(j), cur_part_vals(j))
                 cur_part_vals(j) = partition.spec(table.partitionColumnNames(j))
                 val new_part = CatalogTablePartition(new_part_spec.toMap,
                   emptyStorage, Map.empty[String, String].toMap, partition.createTime, -1, None)
                 val partition_json = hms_ext.getPartitionJson(table, new_part, 0)
+                // before new partition is added, stats of the previous partition is flushed out
+                if (cur_part_stats.size > j) {
+                  // write the previous stat and replace it with empty stat
+                  val stats_json = hms_ext.getStatsJson(table, prev_part_spec.toMap,
+                      cur_part_stats(j))
+                  cur_part_stats(j) = CatalogStatistics(BigInt(0), Some(BigInt(0)),
+                      Map.empty[String, CatalogColumnStat].toMap)
+                  file_writer.write(stats_json + "\n")
+                }
+                else {
+                  // add empty stat object to the stats array
+                  cur_part_stats.append(CatalogStatistics(BigInt(0), Some(BigInt(0)),
+                    Map.empty[String, CatalogColumnStat].toMap))
+                }
+
                 file_writer.write(partition_json + "\n")
               }
             }
@@ -390,12 +516,39 @@ private[spark] object HMSExtractor extends Logging {
           val partition_json = hms_ext.getPartitionJson(table, partition, 1)
           file_writer.write(partition_json + "\n")
           val files = hms_ext.listFiles(partition)
+          var leafStats = CatalogStatistics(BigInt(0), Some(BigInt(0)),
+              Map.empty[String, CatalogColumnStat].toMap)
           files.foreach { file =>
-            val file_json = hms_ext.getFileJson(table, partition, file)
+            val file_stats = hms_ext.extractStats(table, file)
+            cur_part_stats.indices.foreach { i =>
+              cur_part_stats(i) = hms_ext.mergeStats(table, cur_part_stats(i), file_stats)
+
+            }
+            tableStats = hms_ext.mergeStats(table, tableStats, file_stats)
+            leafStats = hms_ext.mergeStats(table, leafStats, file_stats)
+
+            val file_json = hms_ext.getFileJson(table, partition, file, Some(file_stats))
             file_writer.write(file_json + "\n")
+          }
+          val stats_json = hms_ext.getStatsJson(table, partition.spec, leafStats)
+          file_writer.write(stats_json + "\n")
+        }
+        // flush out partition stats that has not been written out to json
+        val partVals = Map.empty[String, String]
+        cur_part_stats.indices.foreach { i =>
+          val partStats = cur_part_stats(i)
+          partVals.put(table.partitionColumnNames(i), cur_part_vals(i))
+          // if the stats object is not empty, flush it out
+          if (!( partStats.sizeInBytes == BigInt(0) && partStats.rowCount.get == BigInt(0) &&
+              partStats.colStats.isEmpty)) {
+            val stats_json = hms_ext.getStatsJson(table, partVals.toMap, cur_part_stats(i))
+            file_writer.write(stats_json + "\n")
           }
         }
       }
+
+      val tableStatsJson = hms_ext.getStatsJson(table, Map.empty[String, String].toMap, tableStats)
+      file_writer.write(tableStatsJson + "\n")
     }
     file_writer.close()
   }
