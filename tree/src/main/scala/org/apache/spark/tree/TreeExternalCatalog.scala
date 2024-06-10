@@ -143,8 +143,8 @@ private[spark] object TreeSerde {
     if (stats.rowCount.isDefined) {
       writer.writeInt64("rowCount", stats.rowCount.get.toLong)
     }
-    writer.writeName("colStats")
-    writer.writeStartDocument()
+
+    writer.writeStartDocument("colStats")
     table.schema.fields.foreach{ field =>
       val colStat = stats.colStats.get(field.name)
       if (colStat.isDefined) {
@@ -159,11 +159,95 @@ private[spark] object TreeSerde {
     outputBuffer
   }
 
-  def getPartId(table : CatalogTable, partition : CatalogTablePartition): String = {
+  // 4 increment
+  // 5 decrement
+  // 6 min
+  // 7 max
+  def toMergeBson(table: CatalogTable, stats: CatalogStatistics) : BasicOutputBuffer = {
+    val outputBuffer = new BasicOutputBuffer()
+    val writer = new BsonBinaryWriter(outputBuffer)
+
+    writer.writeStartDocument()
+
+    writer.writeStartDocument("sizeInBytes")
+    writer.writeString("op", "4")
+    writer.writeInt64("", stats.sizeInBytes.toLong)
+    writer.writeEndDocument()
+
+    if (stats.rowCount.isDefined) {
+      writer.writeStartDocument("rowCount")
+      writer.writeString("op", "4")
+      writer.writeInt64("", stats.rowCount.get.toLong)
+      writer.writeEndDocument()
+    }
+
+    writer.writeStartDocument("colStats")
+    table.schema.fields.foreach{ field =>
+      val colStat = stats.colStats.get(field.name)
+      if (colStat.isDefined) {
+        writer.writeName(field.name)
+        appendMergeBson(writer, field.dataType, colStat.get)
+      }
+    }
+    writer.writeEndDocument()
+
+    writer.writeEndDocument()
+    outputBuffer
+  }
+
+  private def appendMergeBson(writer : BsonBinaryWriter, dataType: DataType,
+                              colStat : CatalogColumnStat): Unit = {
+    writer.writeStartDocument()
+    // no merge operation for distinct count
+    if (colStat.min.isDefined) {
+      writer.writeStartDocument("min")
+      writer.writeString("op", "6")
+      dataType match {
+        case ByteType => writer.writeInt32("", colStat.min.get.toInt)
+        case ShortType => writer.writeInt32("", colStat.min.get.toInt)
+        case IntegerType => writer.writeInt32("", colStat.min.get.toInt)
+        case LongType => writer.writeInt64("", colStat.min.get.toLong)
+        case BooleanType => writer.writeBoolean("", colStat.min.get.toBoolean)
+        case FloatType => writer.writeDouble("", colStat.min.get.toDouble)
+        case DoubleType => writer.writeDouble("", colStat.min.get.toDouble)
+        case _ => writer.writeString("", colStat.min.get)
+      }
+      writer.writeEndDocument()
+    }
+    if (colStat.max.isDefined) {
+      writer.writeStartDocument("max")
+      writer.writeString("op", "7")
+      dataType match {
+        case ByteType => writer.writeInt32("", colStat.max.get.toInt)
+        case ShortType => writer.writeInt32("", colStat.max.get.toInt)
+        case IntegerType => writer.writeInt32("", colStat.max.get.toInt)
+        case LongType => writer.writeInt64("", colStat.max.get.toLong)
+        case BooleanType => writer.writeBoolean("", colStat.max.get.toBoolean)
+        case FloatType => writer.writeDouble("", colStat.max.get.toDouble)
+        case DoubleType => writer.writeDouble("", colStat.max.get.toDouble)
+        case _ => writer.writeString("", colStat.max.get)
+      }
+      writer.writeEndDocument()
+    }
+    if (colStat.nullCount.isDefined) {
+      writer.writeStartDocument("nullCount")
+      writer.writeString("op", "4")
+      writer.writeInt64("", colStat.nullCount.get.toLong)
+      writer.writeEndDocument()
+    }
+
+    // no merge operation for avgLen, .maxLen, histogram, or version
+    writer.writeEndDocument()
+  }
+
+
+
+
+  def getPartId(table : CatalogTable, partitionSpec : CatalogTypes.TablePartitionSpec): String = {
     var partId = ""
     table.partitionSchema.foreach { partitionColumn =>
-      if (partition.spec.contains(partitionColumn.name)) {
-        val partitionVal = getPartitionVal(partitionColumn, partition.spec)
+      if (partitionSpec.contains(partitionColumn.name)) {
+        val partitionVal = getPartitionVal(partitionColumn, partitionSpec)
         partId = partId + "/" +  partitionColumn.name + "=" + partitionVal
       }
     }
@@ -245,32 +329,6 @@ private[spark] object TreeSerde {
     }
 
     writer.writeEndDocument()
-    writer.writeEndDocument()
-  }
-
-  def appendBson(writer : BsonBinaryWriter, colStat : CatalogColumnStat): Unit = {
-    writer.writeStartDocument()
-    if (colStat.distinctCount.isDefined) {
-      writer.writeInt64("distinctCount", colStat.distinctCount.get.toLong)
-    }
-    if (colStat.min.isDefined) {
-      writer.writeString("min", colStat.min.get)
-    }
-    if (colStat.max.isDefined) {
-      writer.writeString("max", colStat.max.get)
-    }
-    if (colStat.nullCount.isDefined) {
-      writer.writeInt64("nullCount", colStat.nullCount.get.toLong)
-    }
-    if (colStat.avgLen.isDefined) {
-      writer.writeInt64("avgLen", colStat.avgLen.get)
-    }
-    if (colStat.maxLen.isDefined) {
-      writer.writeInt64("maxLen", colStat.maxLen.get)
-    }
-    // no support for histogram
-    writer.writeInt32("version", colStat.version)
-
     writer.writeEndDocument()
   }
 
@@ -627,6 +685,62 @@ private[spark] object TreeSerde {
     val version = bsonDocument.get("version").asNumber().intValue()
 
     CatalogColumnStat(distinctCount, min, max, nullCount, avgLen, maxLen, None, version)
+
+  }
+
+  // create empty statistics with default base values so it is mergeable
+  def emptyStats(table : CatalogTable) : CatalogStatistics = {
+    val sizeInBytes = BigInt(0)
+    val rowCount = Some(BigInt(0))
+    val colStats = scala.collection.mutable.Map.empty[String, CatalogColumnStat]
+    val schema = table.schema
+    // exclude partition columns
+    for (i <- 0 until schema.length - table.partitionColumnNames.length) {
+      colStats.put(schema(i).name, emptyColStat(schema(i).dataType))
+    }
+
+    CatalogStatistics(sizeInBytes, rowCount, colStats.toMap)
+
+  }
+
+  private def emptyColStat(dataType : DataType) : CatalogColumnStat = {
+    val min = {
+      dataType match {
+        case ByteType => Some(Byte.MinValue.toString)
+        case ShortType => Some(Short.MinValue.toString)
+        case IntegerType => Some(Int.MinValue.toString)
+        case LongType => Some(Long.MinValue.toString)
+        case BooleanType => Some("false")
+        case FloatType => Some(Float.MinValue.toString)
+        case DoubleType => Some(Double.MinValue.toString)
+        case StringType => Some("")
+        case DateType => Some("0000-01-01")
+        // other types are currently not supported
+        case _ => None
+      }
+    }
+    val max = {
+      dataType match {
+        case ByteType => Some(Byte.MaxValue.toString)
+        case ShortType => Some(Short.MaxValue.toString)
+        case IntegerType => Some(Int.MaxValue.toString)
+        case LongType => Some(Long.MaxValue.toString)
+        case BooleanType => Some("true")
+        case FloatType => Some(Float.MaxValue.toString)
+        case DoubleType => Some(Double.MaxValue.toString)
+        // This should work for most unicode
+        // scalastyle:off
+        case StringType => Some("\uFFFF")
+        // scalastyle:on
+        case DateType => Some("9999-12-31")
+        // other types are currently not supported
+        case _ => None
+      }
+    }
+    val nullCount = Some(BigInt(0))
+    val version = 1
+
+    CatalogColumnStat(None, min, max, nullCount, None, None, None, version)
 
   }
 }
@@ -1485,10 +1599,6 @@ private[spark] class TreeExternalCatalog extends Logging {
       }
     }
 
-// TODO: throw error if txn is empty
-//    if (newTxn.isEmpty) {
-//      throw
-//    }
     val dbPred = constructDbPred(table.identifier.database.get)
     val tablePred = constructTablePred(table.identifier.table)
 
@@ -1541,24 +1651,40 @@ private[spark] class TreeExternalCatalog extends Logging {
     val commitRequest = newTxn.get.commitRequest.get
     val emptyStorage = CatalogStorageFormat(None, None, None, None, false,
       Map.empty[String, String])
+
+    val emptyStats = TreeSerde.emptyStats(table)
     for ( i <- partitionColumnNames.length until table.partitionColumnNames.length - 1) {
       val columnName = table.partitionColumnNames(i)
       partitionVals.put(columnName, partition.spec.get(columnName).getOrElse("DEFAULT"))
+      // create appropriate ancestor partition
       val parentPartition = CatalogTablePartition(partitionVals.toMap, emptyStorage,
           Map.empty, System.currentTimeMillis, -1, None)
       val objPath = "/" + table.identifier.database.get + "/" + table.identifier.table +
-          TreeSerde.getPartId(table, parentPartition)
+          TreeSerde.getPartId(table, parentPartition.spec)
       val partitionBson = TreeSerde.toBson(objPath, table, parentPartition)
+      // add parent partition
       commitRequest.addWriteSet(Write.newBuilder()
         .setType(WriteType.WRITE_TYPE_ADD)
         .setIsLeaf(false)
         .setWriteValue(ByteString.copyFrom(partitionBson.getInternalBuffer, 0,
           partitionBson.getPosition))
         .setPathStr(objPath))
+
+      // create empty base statistics
+      val statsPath = objPath + "/stats"
+      val statsBson = TreeSerde.toBson(statsPath, table, emptyStats)
+      commitRequest.addWriteSet(Write.newBuilder()
+        .setType(WriteType.WRITE_TYPE_ADD)
+        .setIsLeaf(false)
+        .setWriteValue(ByteString.copyFrom(statsBson.getInternalBuffer, 0,
+          statsBson.getPosition))
+        .setPathStr(statsPath))
+
     }
 
+    // create leaf partition
     val objPath = "/" + table.identifier.database.get + "/" + table.identifier.table +
-      TreeSerde.getPartId(table, partition)
+      TreeSerde.getPartId(table, partition.spec)
     val partitionBson = TreeSerde.toBson(objPath, table, partition)
     commitRequest.addWriteSet(Write.newBuilder()
       .setType(WriteType.WRITE_TYPE_ADD)
@@ -1566,6 +1692,16 @@ private[spark] class TreeExternalCatalog extends Logging {
       .setWriteValue(ByteString.copyFrom(partitionBson.getInternalBuffer, 0,
         partitionBson.getPosition))
       .setPathStr(objPath))
+
+    // create empty base statistics
+    val statsPath = objPath + "/stats"
+    val statsBson = TreeSerde.toBson(statsPath, table, emptyStats)
+    commitRequest.addWriteSet(Write.newBuilder()
+      .setType(WriteType.WRITE_TYPE_ADD)
+      .setIsLeaf(false)
+      .setWriteValue(ByteString.copyFrom(statsBson.getInternalBuffer, 0,
+        statsBson.getPosition))
+      .setPathStr(statsPath))
 
     // if not part of the existing transaction, commit
     if (txn.isEmpty) {
@@ -1589,23 +1725,46 @@ private[spark] class TreeExternalCatalog extends Logging {
       }
     }
 
-    // TODO: throw error if txn is empty
-    //    if (newTxn.isEmpty) {
-    //      throw
-    //    }
-
     val commitRequest = newTxn.get.commitRequest.get
+    val tablePartitionSchema = table.partitionSchema
     files.foreach{ file =>
       val objPath = "/" + table.identifier.database.get + "/" + table.identifier.table +
         TreeSerde.getFileId(table, file)
       val fileBson = TreeSerde.toBson(objPath, table, file)
-      // TODO: add stats delta to the parent table and partitions
+
       commitRequest.addWriteSet(Write.newBuilder()
         .setType(WriteType.WRITE_TYPE_ADD)
         .setIsLeaf(true)
         .setWriteValue(ByteString.copyFrom(fileBson.getInternalBuffer, 0,
           fileBson.getPosition))
         .setPathStr(objPath))
+
+      // if file has statistics, merge delta to table and partition at every level
+      if (file.stats.isDefined) {
+        val mergeBson = TreeSerde.toMergeBson(table, file.stats.get)
+        val mergeByteString = ByteString.copyFrom(mergeBson.getInternalBuffer, 0,
+          mergeBson.getPosition)
+        val partitionVals = scala.collection.mutable.Map.empty[String, String]
+        val tablePath = "/" + table.identifier.database.get + "/" + table.identifier.table
+        // update table statistics
+        commitRequest.addWriteSet(Write.newBuilder()
+          .setType(WriteType.WRITE_TYPE_MERGE)
+          .setIsLeaf(false)
+          .setWriteValue(mergeByteString)
+          .setPathStr(tablePath + "/stats"))
+        // update partition statistics
+        tablePartitionSchema.foreach { partitionColumn =>
+          partitionVals.put(partitionColumn.name, file.partitionValues.get(partitionColumn.name)
+            .getOrElse("DEFAULT"))
+          val statsPath = tablePath + TreeSerde.getPartId(table, partitionVals.toMap) + "/stats"
+
+          commitRequest.addWriteSet(Write.newBuilder()
+            .setType(WriteType.WRITE_TYPE_MERGE)
+            .setIsLeaf(false)
+            .setWriteValue(mergeByteString)
+            .setPathStr(statsPath))
+        }
+      }
     }
 
     // if not part of the existing transaction, commit
