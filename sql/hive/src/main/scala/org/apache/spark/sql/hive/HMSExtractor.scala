@@ -445,6 +445,23 @@ private[spark] class HMSClientExt(args: Seq[String], env:
     writer.writeEndDocument()
   }
 
+  // helper function for merging partition values into table statistics
+  def mergePartitionVals(table: CatalogTable, base : CatalogStatistics, partitionSpec :
+                        CatalogTypes.TablePartitionSpec): CatalogStatistics = {
+    val colStats = Map(base.colStats.toSeq: _ *)
+    table.partitionSchema.foreach{ partCol =>
+      val delta = CatalogColumnStat(None, Some(partitionSpec(partCol.name)),
+        Some(partitionSpec(partCol.name)), None, None, None, None, 1)
+
+      val mergedColStat = mergeColStats(partCol, base.colStats.get(partCol.name),
+        Some(delta))
+      if (mergedColStat.isDefined) {
+        colStats.put(partCol.name, mergedColStat.get)
+      }
+    }
+    CatalogStatistics(base.sizeInBytes, base.rowCount, colStats.toMap)
+
+  }
 
   def mergeStats(table : CatalogTable, base : CatalogStatistics,
                  delta: CatalogStatistics): CatalogStatistics = {
@@ -515,7 +532,7 @@ private[spark] class HMSClientExt(args: Seq[String], env:
         Some(CatalogColumnStat(None, min, max, nullCount, None, None, None, 1))
       }
       else {
-        None
+        base
       }
     }
     else if (delta.isDefined) {
@@ -699,6 +716,9 @@ private[spark] object HMSExtractor extends Logging {
             val file_json = hms_ext.getFileJson(table, partition, file, Some(file_stats))
             file_writer.write(file_json + "\n")
           }
+          // merge partition values into table statistics
+          tableStats = hms_ext.mergePartitionVals(table, tableStats, partition.spec)
+
           val stats_json = hms_ext.getStatsJson(table, partition.spec, leafStats)
           file_writer.write(stats_json + "\n")
         }
