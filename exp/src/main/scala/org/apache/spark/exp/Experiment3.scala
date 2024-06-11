@@ -21,8 +21,8 @@ package org.apache.spark.exp
 // import java.io.FileWriter
 import java.lang.Runnable
 import java.net.URI
-// import java.time.Duration
-// import java.time.Instant
+import java.time.Duration
+import java.time.Instant
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import java.util.UUID
@@ -51,9 +51,10 @@ import org.apache.spark.tree.grpc.Grpccatalog.TxnMode
  * dryRunTime: Time for dry run before the main experiment
  * experimentTime: Time for the main experiment
  * numThreads: Number of threads that are executed
- * tableNumExponent: Exponent of Zipfian distribution for getting the number of tables
- * tableDistExpoenent: Exponent of the Zipfian distribution for choosing the tables
- * partitionDistExponent: Expoenent of the Zipfian distribution for choosing partition values
+ * joinSizeRange: Range of min and max of the join size (picked from uniform distribution)
+ * tableDistExponent: Exponent of the Zipfian distribution for choosing the tables
+ * partitionDistExponent: Exponent of the Zipfian distribution for choosing partition values
+ * partitionRange: Min and max of the partition range to be scanned (from uniform distribution)
  *
  */
 
@@ -73,19 +74,20 @@ object Experiment3 {
       expConfig.put(config.getKey, config.getValue.asText())
     }
 
-    val dryRunTime = convertToMilliseconds(expConfig.getOrElse("dryRunTime", "00:00:30"))
-    val experimentTime = convertToMilliseconds(expConfig.getOrElse("experimentTime", "00:00:30"))
-    val numThreads = expConfig.getOrElse("numThreads", "1").toInt
+    val dryRunTime = convertToMilliseconds(expConfig.getOrElse("dryRunTime", "00:00:20"))
+    val experimentTime = convertToMilliseconds(expConfig.getOrElse("experimentTime", "00:00:60"))
+    val numThreads = expConfig.getOrElse("numThreads", "8").toInt
     val threads = ArrayBuffer[Thread]()
 
     val execDryRun = new AtomicBoolean(false)
     val execExperiment = new AtomicBoolean(false)
-    val numCommits = new AtomicLong(0)
-    val numAborts = new AtomicLong(0)
+    val totalNumCommits = new AtomicLong(0)
+    val totalNumAborts = new AtomicLong(0)
+    val totalLatencies = new AtomicLong(0)
 
     for (i <- 0 until numThreads) {
       threads.append(new Thread(new threadOps(dataConfig, expConfig.toMap, i, execDryRun,
-        execExperiment, numCommits, numAborts)))
+        execExperiment, totalNumCommits, totalNumAborts, totalLatencies)))
     }
 
     // execute the dry run
@@ -106,10 +108,11 @@ object Experiment3 {
     }
 
     // print the results
-    printf("Number of Commits: " + numCommits.toString + "\n")
-    printf("Number of Aborts: " + numAborts.toString + "\n")
-    printf("Throughput: " + (numCommits.get().toDouble * 1000) / experimentTime + "\n")
-
+    printf("Number of Commits: " + totalNumCommits.toString + "\n")
+    printf("Number of Aborts: " + totalNumAborts.toString + "\n")
+    printf("Throughput: " + (totalNumCommits.get().toDouble * 1000) / experimentTime + "\n")
+    printf("Average Latency: " + (totalLatencies.get().toDouble/
+      (1000000 * (totalNumCommits.get + totalNumAborts.get))) + "\n")
   }
 
   private def convertToMilliseconds(time : String): Int = {
@@ -122,7 +125,8 @@ object Experiment3 {
 
   private class threadOps(dataConfig : JsonNode, expConfig : Map[String, String], seed : Long,
                           execDryRun : AtomicBoolean, execExperiment : AtomicBoolean,
-                          totalNumCommits: AtomicLong, totalNumAborts: AtomicLong) extends Runnable{
+                          totalNumCommits: AtomicLong, totalNumAborts: AtomicLong,
+                          totalLatencies: AtomicLong) extends Runnable{
 
     private val tree = new TreeExternalCatalog()
     private val dbName = dataConfig.get("databaseName").asText()
@@ -130,12 +134,15 @@ object Experiment3 {
     private val sqlParser = new SparkSqlParser()
     dataGen.reSeed(seed)
     private val rwRatio = expConfig.getOrElse("readWriteRatio", "50:50").split(":").map(_.toInt)
-    private val tableNumExponent = expConfig.getOrElse("tableNumExponent", "1").toDouble
-    private val tableDistExponent = expConfig.getOrElse("tableDistExponent", "1").toDouble
-    private val partitionDistExponent = expConfig.getOrElse("partitionDistExponent", "1").toDouble
+    private val joinSizeRange = expConfig.getOrElse("joinSizeRange", "1:8").split(":").map(_.toInt)
+    private val tableDistExponent = expConfig.getOrElse("tableDistExponent", "2").toDouble
+    private val partitionDistExponent = expConfig.getOrElse("partitionDistExponent", "2").toDouble
+    private val partitionRange = expConfig.getOrElse("partitionRange", "1:30")
+      .split(":").map(_.toInt)
     private val tablesJson = dataConfig.get("tables")
     private val numTables = tablesJson.size()
     private val totalRatio = rwRatio.sum
+    private var latencies: Long = 0
     private var numCommits = 0
     private var numAborts = 0
 
@@ -150,6 +157,7 @@ object Experiment3 {
 
       totalNumCommits.addAndGet(numCommits)
       totalNumAborts.addAndGet(numAborts)
+      totalLatencies.addAndGet(latencies)
 
     }
 
@@ -159,16 +167,27 @@ object Experiment3 {
 
       // pick tables to join
       // do not pick all tables as 1 of them is destination table
-      val joinSize = math.min(dataGen.nextZipf(numTables, tableNumExponent), numTables - 1)
+      val joinSize = dataGen.nextInt(joinSizeRange(0), joinSizeRange(1))
       val joinTableIndices: Set[Int] = Set.empty[Int]
       while (joinTableIndices.size < joinSize) {
-        joinTableIndices.add(dataGen.nextZipf(numTables, tableDistExponent) - 1)
+        joinTableIndices.add(dataGen.nextZipf(numTables, tableDistExponent))
       }
       val joinTableJsons = ArrayBuffer[JsonNode]()
+
+
       joinTableIndices.foreach { tableIndex =>
-        joinTableJsons.append(tablesJson.get(tableIndex))
+        if (read) {
+          // table distribution is different if query is read only
+          // last tables are more likely to be joined
+          joinTableJsons.append(tablesJson.get(numTables - tableIndex))
+        }
+        else {
+          // first tables are more likely to be joined
+          joinTableJsons.append(tablesJson.get(tableIndex - 1))
+        }
+
       }
-      // pick destination table
+      // pick destination table: last table is more likely to be updated
       var destTableIndex = numTables - dataGen.nextZipf(numTables, tableDistExponent)
       while (joinTableIndices.contains(destTableIndex)) {
         destTableIndex = numTables - dataGen.nextZipf(numTables, tableDistExponent)
@@ -183,15 +202,19 @@ object Experiment3 {
         tableJson.get("partitionSchema").forEach { partitionCol =>
           if (partitionCol.get("type").asText() == "INT") {
             val partitionMax = partitionCol.get("max").asInt()
-            partitionValsSeq.append(List(dataGen.nextZipf(partitionMax, partitionDistExponent),
-              dataGen.nextZipf(partitionMax, partitionDistExponent)))
+            val rangeMin = dataGen.nextZipf(partitionMax, partitionDistExponent)
+            val rangeMax = math.min(dataGen.nextInt(partitionRange(0), partitionRange(1))
+              + rangeMin, partitionMax)
+            partitionValsSeq.append(List(rangeMin, rangeMax))
           }
           else if (partitionCol.get("type").asText() == "DATE") {
             val minDate = LocalDate.parse(partitionCol.get("min").asText())
             val maxDate = LocalDate.parse(partitionCol.get("max").asText())
             val numDays = (ChronoUnit.DAYS.between(minDate, maxDate) + 1).toInt
-            partitionValsSeq.append(List(dataGen.nextZipf(numDays, partitionDistExponent),
-              dataGen.nextZipf(numDays, partitionDistExponent)))
+            val rangeMin = dataGen.nextZipf(numDays, partitionDistExponent)
+            val rangeMax = math.min(dataGen.nextInt(partitionRange(0), partitionRange(1))
+              + rangeMin, numDays)
+            partitionValsSeq.append(List(rangeMin, rangeMax))
           }
         }
         joinTablePartitionRanks.append(partitionValsSeq)
@@ -217,21 +240,26 @@ object Experiment3 {
       while (retries < 3 && !success) {
         // read operation
         if (read) {
+          val startTime = Instant.now()
           val txn = tree.startTransaction(TxnMode.TXN_MODE_READ_ONLY)
           scanTables(joinTableJsons, joinTablePartitionRanks, txn)
           if (tree.commit(txn.get)) {
             success = true
           }
-
+          val endTime = Instant.now()
+          latencies += Duration.between(startTime, endTime).toNanos()
         }
         // write operation
         else {
+          val startTime = Instant.now()
           val txn = tree.startTransaction(TxnMode.TXN_MODE_READ_WRITE)
           addBatch(destTableJson, destTablePartitionRanks, joinTableJsons,
             joinTablePartitionRanks, txn)
           if (tree.commit(txn.get)) {
             success = true
           }
+          val endTime = Instant.now()
+          latencies += Duration.between(startTime, endTime).toNanos()
         }
 
         // if not dry run, collect the results
@@ -266,11 +294,12 @@ object Experiment3 {
 
         val filters = ArrayBuffer[Expression]()
         val partitionSchema = table.partitionSchema
+        val partitionSchemaJson = tableJson.get("partitionSchema")
 
         partitionSchema.indices.foreach{ i =>
           val partitionCol = partitionSchema(i)
           if (partitionCol.dataType.isInstanceOf[IntegralType]) {
-            val partitionMax = tableJson.get("partitionMax").asInt()
+            val partitionMax = partitionSchemaJson.get(i).get("max").asInt()
             val minPartVal = "%012d".format(partitionMax - ranks(i).max + 1)
             val maxPartVal = "%012d".format(partitionMax - ranks(i).min + 1)
             val partitionPred = f"${partitionCol.name} >= '${partitionCol.name}=$minPartVal' and " +
@@ -278,7 +307,7 @@ object Experiment3 {
             filters.append(sqlParser.parseExpression(partitionPred))
           }
           else {
-            val maxDate = LocalDate.parse(tableJson.get("partitionMax").asText())
+            val maxDate = LocalDate.parse(partitionSchemaJson.get(i).get("max").asText())
             val minPartVal = maxDate.minusDays(ranks(i).max - 1).toString
             val maxPartVal = maxDate.minusDays(ranks(i).min - 1).toString
             val partitionPred = f"${partitionCol.name} >= '${partitionCol.name}=$minPartVal' and " +
@@ -319,17 +348,19 @@ object Experiment3 {
       // randomly pick the destination partition, using Zipf distribution
       val destPartSpec = scala.collection.mutable.Map[String, String]()
       val partitionSchema = destTable.partitionSchema
+      val partitionSchemaJson = destTableJson.get("partitionSchema")
+
       partitionSchema.indices.foreach { i =>
         val partitionCol = destTable.partitionSchema(i)
         // if integer type, partition with maximum value is most likely
         if (partitionCol.dataType.isInstanceOf[IntegralType]) {
-          val partitionMax = destTableJson.get("partitionMax").asInt()
+          val partitionMax = partitionSchemaJson.get(i).get("max").asInt()
           val rank = destTablePartitionRanks(i)
           destPartSpec.put(partitionCol.name, (partitionMax - rank + 1).toString)
         }
         // if date type, partition with most recent date is most likely
         if (partitionCol.dataType == DateType) {
-          val maxDate = LocalDate.parse(destTableJson.get("partitionMax").asText())
+          val maxDate = LocalDate.parse(partitionSchemaJson.get(i).get("max").asText())
           val rank = destTablePartitionRanks(i)
           destPartSpec.put(partitionCol.name, maxDate.minusDays(rank - 1).toString)
         }
@@ -339,8 +370,8 @@ object Experiment3 {
       val immutableDestPartSpec = destPartSpec.toMap
 
       val files = ArrayBuffer[CatalogTableFile]()
-      // add a batch of 10 files
-      for (i <- 0 until 10) {
+      // only add 1 file since we do not want the number of files per partition to blow up
+      for (i <- 0 until 1) {
         val filePath = destTable.location.getPath + "/" + UUID.randomUUID()
         val storage = CatalogStorageFormat(Some(new URI(filePath)), destTable.storage.inputFormat,
           destTable.storage.outputFormat, destTable.storage.serde, false, destTable.properties)
