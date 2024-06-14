@@ -568,6 +568,7 @@ private[spark] class HMSClientExt(args: Seq[String], env:
     val dataBuf: Array[Byte] = new Array[Byte](file.getLen.toInt)
     val ifstream = fs.open(file.getPath)
     ifstream.readFully(dataBuf)
+    ifstream.close()
     val schema = table.schema
     val record = dataBuf.map(_.toChar).mkString.replaceAll("[\n\r]", "").split(",")
     val colStats = Map.empty[String, CatalogColumnStat]

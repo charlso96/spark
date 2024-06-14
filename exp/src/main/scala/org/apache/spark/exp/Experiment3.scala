@@ -76,7 +76,7 @@ object Experiment3 {
 
     val dryRunTime = convertToMilliseconds(expConfig.getOrElse("dryRunTime", "00:00:20"))
     val experimentTime = convertToMilliseconds(expConfig.getOrElse("experimentTime", "00:00:60"))
-    val numThreads = expConfig.getOrElse("numThreads", "8").toInt
+    val numThreads = expConfig.getOrElse("numThreads", "16").toInt
     val threads = ArrayBuffer[Thread]()
 
     val execDryRun = new AtomicBoolean(false)
@@ -127,24 +127,26 @@ object Experiment3 {
                           execDryRun : AtomicBoolean, execExperiment : AtomicBoolean,
                           totalNumCommits: AtomicLong, totalNumAborts: AtomicLong,
                           totalLatencies: AtomicLong) extends Runnable{
-
-    private val tree = new TreeExternalCatalog()
-    private val dbName = dataConfig.get("databaseName").asText()
-    private val dataGen = new RandomDataGenerator()
-    private val sqlParser = new SparkSqlParser()
-    dataGen.reSeed(seed)
+    
     private val rwRatio = expConfig.getOrElse("readWriteRatio", "50:50").split(":").map(_.toInt)
     private val joinSizeRange = expConfig.getOrElse("joinSizeRange", "1:8").split(":").map(_.toInt)
     private val tableDistExponent = expConfig.getOrElse("tableDistExponent", "2").toDouble
     private val partitionDistExponent = expConfig.getOrElse("partitionDistExponent", "2").toDouble
     private val partitionRange = expConfig.getOrElse("partitionRange", "1:30")
       .split(":").map(_.toInt)
+    private val treeAddress = expConfig.getOrElse("treeAddress", "localhost:9876")
+    private val dbName = dataConfig.get("databaseName").asText()
     private val tablesJson = dataConfig.get("tables")
     private val numTables = tablesJson.size()
     private val totalRatio = rwRatio.sum
     private var latencies: Long = 0
     private var numCommits = 0
     private var numAborts = 0
+
+    private val tree = new TreeExternalCatalog(treeAddress)
+    private val dataGen = new RandomDataGenerator()
+    dataGen.reSeed(seed)
+    private val sqlParser = new SparkSqlParser()
 
     override def run() : Unit = {
       while (execDryRun.get()) {
@@ -303,7 +305,7 @@ object Experiment3 {
             val minPartVal = "%012d".format(partitionMax - ranks(i).max + 1)
             val maxPartVal = "%012d".format(partitionMax - ranks(i).min + 1)
             val partitionPred = f"${partitionCol.name} >= '${partitionCol.name}=$minPartVal' and " +
-              f"${partitionCol.name} <= 'partitionCol.name=$maxPartVal'"
+              f"${partitionCol.name} <= '${partitionCol.name}=$maxPartVal'"
             filters.append(sqlParser.parseExpression(partitionPred))
           }
           else {
@@ -311,7 +313,7 @@ object Experiment3 {
             val minPartVal = maxDate.minusDays(ranks(i).max - 1).toString
             val maxPartVal = maxDate.minusDays(ranks(i).min - 1).toString
             val partitionPred = f"${partitionCol.name} >= '${partitionCol.name}=$minPartVal' and " +
-              f"${partitionCol.name} <= 'partitionCol.name=$maxPartVal'"
+              f"${partitionCol.name} <= '${partitionCol.name}=$maxPartVal'"
             filters.append(sqlParser.parseExpression(partitionPred))
           }
         }

@@ -26,6 +26,8 @@ import scala.collection.mutable.ArrayBuffer
 
 import com.google.protobuf.ByteString
 import io.grpc.ManagedChannelBuilder
+import org.apache.hadoop.fs.FileStatus
+import org.apache.hadoop.fs.Path
 import org.bson.BsonArray
 import org.bson.BsonBinaryWriter
 import org.bson.BsonDocument
@@ -473,6 +475,23 @@ private[spark] object TreeSerde {
     CatalogTablePartition(spec, storage, parameters, createTime, lastAccessTime, stats)
   }
 
+  def toFileStatus(bsonDocument : BsonDocument) : FileStatus = {
+    // scalastyle:off pathfromuri
+    val path = new Path(new URI(bsonDocument.get("storage").asDocument()
+      .get("locationUri").asString().getValue()))
+    // scalastyle:on pathfromuri
+    val size = bsonDocument.get("size").asNumber().longValue()
+    val modificationTime = bsonDocument.get("modificationTime").asNumber().longValue()
+
+    new FileStatus(
+      /* length */ size,
+      /* isDir */ false,
+      /* blockReplication */ 0,
+      /* blockSize */ 1,
+      /* modificationTime */ modificationTime,
+      path)
+  }
+
   // deserializer for CatalogTableFile
   def toCatalogTableFile(bsonDocument : BsonDocument) : CatalogTableFile = {
     val storage = toCatalogStorageFormat(bsonDocument.get("storage").asDocument())
@@ -607,8 +626,8 @@ private[spark] object TreeSerde {
     }
     val colStatsBson = bsonDocument.get("colStats").asDocument()
     val colStats : mutable.Map[String, CatalogColumnStat] = mutable.Map.empty
-    colStatsBson.forEach{ (key, value) =>
-      colStats.put(key, toCatalogColumnStat(value.asDocument()))
+    colStatsBson.entrySet().forEach{ entry =>
+      colStats.put(entry.getKey, toCatalogColumnStat(entry.getValue.asDocument()))
     }
 
     CatalogStatistics(BigInt(sizeInBytes), rowCount, colStats.toMap)
@@ -762,12 +781,14 @@ private[spark] class TreeTxn(val txnMode : TxnMode,
 
 }
 
-private[spark] class TreeExternalCatalog extends Logging {
+private[spark] class TreeExternalCatalog(address : String = "localhost:9876") extends Logging {
   private implicit val formats = Serialization.formats(NoTypeHints) + new HiveURISerializer +
     new HiveDataTypeSerializer + new HiveMetadataSerializer + new HiveStructTypeSerializer
-  private val channel = ManagedChannelBuilder.forAddress("localhost", 9876).usePlaintext().
-    asInstanceOf[ManagedChannelBuilder[_]].build()
-  val catalogStub: GRPCCatalogGrpc.GRPCCatalogBlockingStub =
+  private val addressPort = address.split(":")
+  private val channel = ManagedChannelBuilder.forAddress(addressPort(0), addressPort(1).toInt)
+    .usePlaintext()
+    .asInstanceOf[ManagedChannelBuilder[_]].build()
+  private val catalogStub: GRPCCatalogGrpc.GRPCCatalogBlockingStub =
     GRPCCatalogGrpc.newBlockingStub(channel)
   val json_writer_setting : JsonWriterSettings = JsonWriterSettings.builder().
     outputMode(JsonMode.RELAXED).build()
@@ -1239,7 +1260,6 @@ private[spark] class TreeExternalCatalog extends Logging {
     partitions
   }
 
-
   private def toCatalogTableFiles(queryResponses: java.util.Iterator[ExecuteQueryResponse],
                                   txn : Option[TreeTxn])
   : Seq[CatalogTableFile] = {
@@ -1253,6 +1273,29 @@ private[spark] class TreeExternalCatalog extends Logging {
         val fileBson = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
           responseBuf.size - bufIter.dataIdx())
         files += TreeSerde.toCatalogTableFile(fileBson)
+        bufIter.next()
+      }
+    })
+    if (txn.isDefined && lastResponse.isDefined && lastResponse.get.hasAbort) {
+      txn.get.setAbort(lastResponse.get.getAbort)
+      commit(txn.get)
+    }
+    files
+  }
+
+  private def toFileStatuses(queryResponses: java.util.Iterator[ExecuteQueryResponse],
+                                  txn : Option[TreeTxn])
+  : Seq[FileStatus] = {
+    val files = ArrayBuffer[FileStatus]()
+    var lastResponse : Option[ExecuteQueryResponse] = None
+    queryResponses.forEachRemaining(response => {
+      lastResponse = Some(response)
+      val responseBuf = response.getObjList().toByteArray()
+      val bufIter = new BufIterator(responseBuf)
+      while (bufIter.valid()) {
+        val fileBson = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
+          responseBuf.size - bufIter.dataIdx())
+        files += TreeSerde.toFileStatus(fileBson)
         bufIter.next()
       }
     })
@@ -1494,10 +1537,21 @@ private[spark] class TreeExternalCatalog extends Logging {
   }
 
   def listFilesByFilter(db: String, table: String, predicates: Seq[Expression],
-                        txn : Option[TreeTxn]): Seq[CatalogTableFile] = {
+                        txn : Option[TreeTxn]): Seq[FileStatus] = {
     val tableObj = getTable(db, table, txn)
     if (tableObj != null) {
       listFilesByFilter(tableObj, predicates, txn)
+    }
+    else {
+      ArrayBuffer[FileStatus]()
+    }
+  }
+
+  def listFilesWithStatsByFilter(db: String, table: String, predicates: Seq[Expression],
+                        txn : Option[TreeTxn]): Seq[CatalogTableFile] = {
+    val tableObj = getTable(db, table, txn)
+    if (tableObj != null) {
+      listFilesWithStatsByFilter(tableObj, predicates, txn)
     }
     else {
       ArrayBuffer[CatalogTableFile]()
@@ -1505,6 +1559,20 @@ private[spark] class TreeExternalCatalog extends Logging {
   }
 
   def listFilesByFilter(table: CatalogTable, predicates: Seq[Expression],
+                        txn : Option[TreeTxn]): Seq[FileStatus] = {
+    val pathExprBuilder = convertFilters(table, predicates)
+    pathExprBuilder.addPreds(Predicate.newBuilder().
+      setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY))
+
+    val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(
+      pathExprBuilder.build()).setBaseOnly(true).setReturnType(2)
+    setTxnId(queryRequest, txn)
+
+    val queryResponses = catalogStub.executeQuery(queryRequest.build())
+    toFileStatuses(queryResponses, txn)
+  }
+
+  def listFilesWithStatsByFilter(table: CatalogTable, predicates: Seq[Expression],
                         txn : Option[TreeTxn]): Seq[CatalogTableFile] = {
     val pathExprBuilder = convertFilters(table, predicates)
     pathExprBuilder.addPreds(Predicate.newBuilder().
@@ -1518,17 +1586,27 @@ private[spark] class TreeExternalCatalog extends Logging {
     toCatalogTableFiles(queryResponses, txn)
   }
 
-  def listFiles(db: String, table: String, txn : Option[TreeTxn]): Seq[CatalogTableFile] = {
+  def listFiles(db: String, table: String, txn : Option[TreeTxn]): Seq[FileStatus] = {
     val tableObj = getTable(db, table, txn)
     if (tableObj != null) {
       listFiles(tableObj, txn)
+    }
+    else {
+      ArrayBuffer[FileStatus]()
+    }
+  }
+
+  def listFilesWithStats(db: String, table: String, txn: Option[TreeTxn]): Seq[CatalogTableFile] = {
+    val tableObj = getTable(db, table, txn)
+    if (tableObj != null) {
+      listFilesWithStats(tableObj, txn)
     }
     else {
       ArrayBuffer[CatalogTableFile]()
     }
   }
 
-  def listFiles(table : CatalogTable, txn : Option[TreeTxn]) : Seq[CatalogTableFile] = {
+  def listFiles(table : CatalogTable, txn : Option[TreeTxn]) : Seq[FileStatus] = {
     val dbPred = constructDbPred(table.identifier.database.get)
     val tablePred = constructTablePred(table.identifier.table)
     val pathExprBuilder = PathExpr.newBuilder().addPreds(dbPred).addPreds(tablePred)
@@ -1543,11 +1621,29 @@ private[spark] class TreeExternalCatalog extends Logging {
     setTxnId(queryRequest, txn)
 
     val queryResponses = catalogStub.executeQuery(queryRequest.build())
+    toFileStatuses(queryResponses, txn)
+  }
+
+  def listFilesWithStats(table : CatalogTable, txn : Option[TreeTxn]) : Seq[CatalogTableFile] = {
+    val dbPred = constructDbPred(table.identifier.database.get)
+    val tablePred = constructTablePred(table.identifier.table)
+    val pathExprBuilder = PathExpr.newBuilder().addPreds(dbPred).addPreds(tablePred)
+
+    val partPred = constructBinaryPred("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "partition")
+    table.partitionColumnNames.foreach({ column_name =>
+      pathExprBuilder.addPreds(partPred)
+    })
+    val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(pathExprBuilder.
+      addPreds(Predicate.newBuilder().setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build()).
+      build()).setBaseOnly(true).setReturnType(2)
+    setTxnId(queryRequest, txn)
+
+    val queryResponses = catalogStub.executeQuery(queryRequest.build())
     toCatalogTableFiles(queryResponses, txn)
   }
 
   def listFiles(table : CatalogTable, partition : CatalogTablePartition,
-                txn : Option[TreeTxn]) : Seq[CatalogTableFile] = {
+                txn : Option[TreeTxn]) : Seq[FileStatus] = {
     val dbPred = constructDbPred(table.identifier.database.get)
     val tablePred = constructTablePred(table.identifier.table)
     val pathExprBuilder = PathExpr.newBuilder().addPreds(dbPred).addPreds(tablePred)
@@ -1582,6 +1678,48 @@ private[spark] class TreeExternalCatalog extends Logging {
     val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(pathExprBuilder.
         addPreds(Predicate.newBuilder().setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build()).
         build()).setBaseOnly(true).setReturnType(2)
+    setTxnId(queryRequest, txn)
+
+    val queryResponses = catalogStub.executeQuery(queryRequest.build)
+    toFileStatuses(queryResponses, txn)
+  }
+
+  def listFilesWithStats(table : CatalogTable, partition : CatalogTablePartition,
+                txn : Option[TreeTxn]) : Seq[CatalogTableFile] = {
+    val dbPred = constructDbPred(table.identifier.database.get)
+    val tablePred = constructTablePred(table.identifier.table)
+    val pathExprBuilder = PathExpr.newBuilder().addPreds(dbPred).addPreds(tablePred)
+
+    val partTypeExpr = constructBinaryExpr("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "partition")
+    val partTypePred = Predicate.newBuilder().setExprNode(partTypeExpr).build
+    table.partitionSchema.foreach { partitionColumn =>
+      val partitionValOption = partition.spec.get(partitionColumn.name)
+      if (partitionValOption.isDefined) {
+        val partitionVal = {
+          if (partitionColumn.dataType.isInstanceOf[IntegralType]) {
+            "%012d".format(partitionValOption.get.toLong)
+          }
+          else {
+            partitionValOption.get
+          }
+        }
+        val andBuilder = ExprBool.newBuilder().setOpType(ExprBoolType.EXPR_BOOL_TYPE_AND)
+        andBuilder.addArgs(constructBinaryExpr("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS,
+          partitionColumn.name + "=" + partitionVal))
+        andBuilder.addArgs(partTypeExpr)
+
+        pathExprBuilder.addPreds(Predicate.newBuilder()
+          .setExprNode(ExprNode.newBuilder().setExprBool(andBuilder)))
+
+      }
+      else {
+        pathExprBuilder.addPreds(partTypePred)
+      }
+    }
+
+    val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(pathExprBuilder.
+      addPreds(Predicate.newBuilder().setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build()).
+      build()).setBaseOnly(true).setReturnType(2)
     setTxnId(queryRequest, txn)
 
     val queryResponses = catalogStub.executeQuery(queryRequest.build)

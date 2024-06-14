@@ -48,12 +48,7 @@ import org.apache.spark.tree.grpc.Grpccatalog.TxnMode
 import org.apache.spark.util.Utils
 
 
-
-private[spark] class ExperimentUtil extends Logging {
-  val hms_ext = new HMSClientExt(Seq.empty)
-  val hms = hms_ext.client
-  val tree = new TreeExternalCatalog()
-
+private[spark] class ExperimentUtil(treeAddress: String = "localhost:9876") extends Logging {
   var sparkContext: SparkContext = _
   var sparkSession: SparkSession = _
   private var isShellSession = false
@@ -89,7 +84,14 @@ private[spark] class ExperimentUtil extends Logging {
   val rootDir = conf.getOption("spark.repl.classdir").getOrElse(Utils.getLocalDir(conf))
   val outputDir = Utils.createTempDir(root = rootDir, namePrefix = "repl")
 
-//  createSparkSession()
+  createSparkSession()
+
+  val hms_ext = new HMSClientExt(Seq.empty)
+  val hms = hms_ext.client
+  val tree = new TreeExternalCatalog(treeAddress)
+  val delta = sparkSession.sessionState.catalogManager
+    .catalog("spark_catalog").asInstanceOf[DelegatingCatalogExtension]
+
 
   private def mergeDefaultSparkProperties(): Unit = {
     // Use common defaults file, if not specified by user
@@ -364,8 +366,7 @@ private[spark] object Experiment {
   private def deltaexp(db_str : String, file_name : String) : Unit = {
     val exp_util = new ExperimentUtil
     val file_writer = new FileWriter(new File(file_name))
-    val delta_catalog = exp_util.sparkSession.sessionState.catalogManager
-      .catalog("spark_catalog").asInstanceOf[DelegatingCatalogExtension]
+    val delta_catalog = exp_util.delta
 
     val table = delta_catalog.loadTable(Identifier.of(Array(db_str), "table1"))
 
@@ -390,7 +391,7 @@ private[spark] object Experiment {
     val tree_tables = exp_util.tree.listTables(db_str)
     val tree_table = exp_util.tree.getTable(db_str, tree_tables(0))
     val partitions = exp_util.tree.listPartitions(tree_table, None)
-    val files = exp_util.tree.listFiles(tree_table, None)
+    val files = exp_util.tree.listFilesWithStats(tree_table, None)
 
     // create a new partition with bogus spec
     val newSpec = Map.empty[String, String]
