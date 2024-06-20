@@ -25,6 +25,7 @@ import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 import com.google.protobuf.ByteString
+import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
 import org.apache.hadoop.fs.FileStatus
 import org.apache.hadoop.fs.Path
@@ -781,13 +782,17 @@ private[spark] class TreeTxn(val txnMode : TxnMode,
 
 }
 
-private[spark] class TreeExternalCatalog(address : String = "localhost:9876") extends Logging {
+private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
+                                         channelOption : Option[ManagedChannel] = None)
+  extends Logging {
   private implicit val formats = Serialization.formats(NoTypeHints) + new HiveURISerializer +
     new HiveDataTypeSerializer + new HiveMetadataSerializer + new HiveStructTypeSerializer
   private val addressPort = address.split(":")
-  private val channel = ManagedChannelBuilder.forAddress(addressPort(0), addressPort(1).toInt)
+  private val channel = channelOption.getOrElse(
+    ManagedChannelBuilder.forAddress(addressPort(0), addressPort(1).toInt)
     .usePlaintext()
-    .asInstanceOf[ManagedChannelBuilder[_]].build()
+    .asInstanceOf[ManagedChannelBuilder[_]].build())
+
   private val catalogStub: GRPCCatalogGrpc.GRPCCatalogBlockingStub =
     GRPCCatalogGrpc.newBlockingStub(channel)
   val json_writer_setting : JsonWriterSettings = JsonWriterSettings.builder().

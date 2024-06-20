@@ -17,6 +17,8 @@
 
 package org.apache.spark.exp
 
+import java.io.File
+import java.io.FileWriter
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -68,7 +70,7 @@ object Experiment2 {
       expConfig.put(config.getKey, config.getValue.asText())
     }
 
-    val dryRunIters = expConfig.getOrElse("dryRunIters", "4").toInt
+    val resultOutput = expConfig.getOrElse("resultOutput", "/tmp/experiment2.txt")
     val experimentIters = expConfig.getOrElse("experimentIters", "10").toInt
     val partitionRange = expConfig.getOrElse("partitionRange", "1:30").split(":").map(_.toInt)
     val treeAddress = expConfig.getOrElse("treeAddress", "localhost:9876")
@@ -79,58 +81,11 @@ object Experiment2 {
     val deltaTablejson = deltaConfig.get("tables").get(0)
     val deltaTableName = deltaTablejson.get("name").asText()
 
-    var treeTime: Long = 0
-    var hmsTime: Long = 0
-    var deltaTime: Long = 0
-
     val expUtil = new ExperimentUtil(treeAddress)
-
+    val outputWriter = new FileWriter(new File(resultOutput))
+    outputWriter.write("Tree,HMS,DeltaLake\n")
     val dataGen = new RandomDataGenerator()
     dataGen.reSeed(1)
-    for (i <- 0 until dryRunIters) {
-      // construct partition vals
-      // the schema for HMS table and delta table should be the same!
-      val partitionValsSeq = ArrayBuffer[List[Int]]()
-      hmsTablejson.get("partitionSchema").forEach { partitionCol =>
-        if (partitionCol.get("type").asText() == "INT") {
-          val partitionMax = partitionCol.get("max").asInt()
-          val rangeMin = dataGen.nextInt(1, partitionMax)
-          val rangeMax = math.min(dataGen.nextInt(partitionRange(0), partitionRange(1))
-            + rangeMin, partitionMax)
-          partitionValsSeq.append(List(rangeMin, rangeMax))
-        }
-        else if (partitionCol.get("type").asText() == "DATE") {
-          val minDate = LocalDate.parse(partitionCol.get("min").asText())
-          val maxDate = LocalDate.parse(partitionCol.get("max").asText())
-          val numDays = (ChronoUnit.DAYS.between(minDate, maxDate) + 1).toInt
-          val rangeMin = dataGen.nextInt(1, numDays)
-          val rangeMax = math.min(dataGen.nextInt(partitionRange(0), partitionRange(1))
-            + rangeMin, numDays)
-          partitionValsSeq.append(List(rangeMin, rangeMax))
-        }
-      }
-      // the same filters can also be used for delta table
-      val hmsFilters = constructHMSFilters(partitionValsSeq)
-      val treeFilters = constructTreeFilters(partitionValsSeq)
-
-      // list files, using TreeCatalog
-      val treeFiles = expUtil.tree.listFilesByFilter(hmsDBName, hmsTableName, treeFilters, None)
-
-      // list files, using HMS
-      val hmsPartitions = expUtil.hms.listPartitionsByFilter(hmsDBName, hmsTableName,
-        hmsFilters, "UTC")
-      hmsPartitions.foreach { partition =>
-        val hmsFiles = expUtil.hms_ext.listFiles(partition)
-      }
-
-      // list files, using DeltaLake
-      val table = expUtil.delta.loadTable(Identifier.of(Array(deltaDBName), deltaTableName))
-      val baseRelation = table.asInstanceOf[DeltaTableV2].toBaseRelation
-        .asInstanceOf[HadoopFsRelation]
-      val deltaPartitions = baseRelation.location.listFiles(hmsFilters, Seq.empty)
-
-    }
-
     for (i <- 0 until experimentIters) {
       // construct partition vals
       // the schema for HMS table and delta table should be the same!
@@ -161,7 +116,7 @@ object Experiment2 {
       val treeStartTime = Instant.now()
       val treeFiles = expUtil.tree.listFilesByFilter(hmsDBName, hmsTableName, treeFilters, None)
       val treeEndTime = Instant.now()
-      treeTime += Duration.between(treeStartTime, treeEndTime).toNanos()
+      val treeTime = Duration.between(treeStartTime, treeEndTime).toNanos()
 
       // list files, using HMS
       val hmsStartTime = Instant.now()
@@ -171,7 +126,7 @@ object Experiment2 {
         val hmsFiles = expUtil.hms_ext.listFiles(partition)
       }
       val hmsEndTime = Instant.now()
-      hmsTime += Duration.between(hmsStartTime, hmsEndTime).toNanos()
+      val hmsTime = Duration.between(hmsStartTime, hmsEndTime).toNanos()
 
       // list files, using DeltaLake
       val deltaStartTime = Instant.now()
@@ -180,13 +135,11 @@ object Experiment2 {
         .asInstanceOf[HadoopFsRelation]
       val deltaPartitions = baseRelation.location.listFiles(hmsFilters, Seq.empty)
       val deltaEndTime = Instant.now()
-      deltaTime += Duration.between(deltaStartTime, deltaEndTime).toNanos()
-
+      val deltaTime = Duration.between(deltaStartTime, deltaEndTime).toNanos()
+      outputWriter.write(treeTime + "," + hmsTime + "," + deltaTime + "\n")
+      outputWriter.flush()
     }
-
-    printf("Tree listFiles Latency: " + treeTime / (1000000 * experimentIters) + "ms\n")
-    printf("HMS listFiles Latency: " + hmsTime / (1000000 * experimentIters) + "ms\n")
-    printf("DeltaLake listFiles Latency: " + deltaTime / (1000000 * experimentIters) + "ms\n")
+    outputWriter.close()
   }
 
   private def constructHMSFilters(partitionVals : Seq[List[Int]]) : Seq[Expression] = {

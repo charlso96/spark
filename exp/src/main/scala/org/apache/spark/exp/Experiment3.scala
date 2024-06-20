@@ -17,8 +17,9 @@
 
 package org.apache.spark.exp
 
-// import java.io.File
-// import java.io.FileWriter
+
+import java.io.File
+import java.io.FileWriter
 import java.lang.Runnable
 import java.net.URI
 import java.time.Duration
@@ -48,17 +49,35 @@ import org.apache.spark.tree.grpc.Grpccatalog.TxnMode
 
 /**
  * List of config parameters:
- * dryRunTime: Time for dry run before the main experiment
- * experimentTime: Time for the main experiment
+ * seed: seed for the random number generator, each thread adds its rank before seeding its own
+ * resultOutput: path of the output file to which result is appended
+ * dryRunTime: Duration of dry run before the main experiment
+ * experimentTime: Duration of the main experiment
  * numThreads: Number of threads that are executed
- * joinSizeRange: Range of min and max of the join size (picked from uniform distribution)
+ * readWriteRatio: The ratio of read and write operations
+ * dimSizeRange: range of number of dim tables to choose
+ * factSizeRange: range of number of fact tables to choose
  * tableDistExponent: Exponent of the Zipfian distribution for choosing the tables
  * partitionDistExponent: Exponent of the Zipfian distribution for choosing partition values
- * partitionRange: Min and max of the partition range to be scanned (from uniform distribution)
- *
+ * partitionRange: Min and max of the partition range size to be scanned (from uniform distribution)
+ * treeAddress: Address of the catalog service
  */
 
 object Experiment3 {
+  val expConfig = scala.collection.mutable.Map.empty[String, String]
+  expConfig.put("seed", "0")
+  expConfig.put("resultOutput", "/tmp/experiment3.txt")
+  expConfig.put("dryRunTime", "00:00:20")
+  expConfig.put("experimentTime", "00:00:60")
+  expConfig.put("numThreads", "16")
+  expConfig.put("readWriteRatio", "50:50")
+  expConfig.put("dimSizeRange", "1:7")
+  expConfig.put("factSizeRange", "1:2")
+  expConfig.put("tableDistExponent", "1")
+  expConfig.put("partitionDistExponent", "1")
+  expConfig.put("partitionRange", "1:30")
+  expConfig.put("treeAddress", "localhost:9876")
+
   def main(args: Array[String]): Unit = {
     if (args.size != 2) {
       print("Usage: spark-class org.apache.spark.exp.Experiment3 <dataConfig> <expConfig>\n")
@@ -69,25 +88,35 @@ object Experiment3 {
     // data configuration, including database name, table schema etc.
     val dataConfig = jsonParser.readTree(Source.fromFile(args(0)).mkString)
     // experiment configuration
-    val expConfig = scala.collection.mutable.Map.empty[String, String]
+
     jsonParser.readTree(Source.fromFile(args(1)).mkString).fields().forEachRemaining { config =>
       expConfig.put(config.getKey, config.getValue.asText())
     }
 
-    val dryRunTime = convertToMilliseconds(expConfig.getOrElse("dryRunTime", "00:00:20"))
-    val experimentTime = convertToMilliseconds(expConfig.getOrElse("experimentTime", "00:00:60"))
-    val numThreads = expConfig.getOrElse("numThreads", "16").toInt
+    val seed = expConfig("seed").toInt
+    val resultOutput = expConfig("resultOutput")
+    val dryRunTime = convertToMilliseconds(expConfig("dryRunTime"))
+    val experimentTime = convertToMilliseconds(expConfig("experimentTime"))
+    val numThreads = expConfig("numThreads").toInt
     val threads = ArrayBuffer[Thread]()
+    val rwRatio = expConfig("readWriteRatio")
+    val dimSizeRange = expConfig("dimSizeRange")
+    val factSizeRange = expConfig("factSizeRange")
+    val tableDistExponent = expConfig("tableDistExponent")
+    val partitionDistExponent = expConfig("partitionDistExponent")
+    val partitionRange = expConfig("partitionRange")
 
     val execDryRun = new AtomicBoolean(false)
     val execExperiment = new AtomicBoolean(false)
     val totalNumCommits = new AtomicLong(0)
     val totalNumAborts = new AtomicLong(0)
     val totalLatencies = new AtomicLong(0)
+    val totalCommitLatencies = new AtomicLong(0)
 
     for (i <- 0 until numThreads) {
-      threads.append(new Thread(new threadOps(dataConfig, expConfig.toMap, i, execDryRun,
-        execExperiment, totalNumCommits, totalNumAborts, totalLatencies)))
+      val contExpConfig = expConfig.toMap
+      threads.append(new Thread(new threadOps(dataConfig, contExpConfig, seed + i, execDryRun,
+        execExperiment, totalNumCommits, totalNumAborts, totalLatencies, totalCommitLatencies)))
     }
 
     // execute the dry run
@@ -108,11 +137,26 @@ object Experiment3 {
     }
 
     // print the results
-    printf("Number of Commits: " + totalNumCommits.toString + "\n")
-    printf("Number of Aborts: " + totalNumAborts.toString + "\n")
-    printf("Throughput: " + (totalNumCommits.get().toDouble * 1000) / experimentTime + "\n")
-    printf("Average Latency: " + (totalLatencies.get().toDouble/
-      (1000000 * (totalNumCommits.get + totalNumAborts.get))) + "\n")
+    val outputWriter = new FileWriter(new File(resultOutput), true)
+    outputWriter.write("dryRunTime: " + dryRunTime/1000 + " s\n")
+    outputWriter.write("experimentTime: " + experimentTime/1000 + " s\n")
+    outputWriter.write("numThreads: " + numThreads + "\n")
+    outputWriter.write("rwRatio: " + rwRatio + "\n")
+    outputWriter.write("dimSizeRange: " + dimSizeRange + "\n")
+    outputWriter.write("factSizeRange: " + factSizeRange + "\n")
+    outputWriter.write("tableDistExponent: " + tableDistExponent + "\n")
+    outputWriter.write("partitionDistExponent: " + partitionDistExponent + "\n")
+    outputWriter.write("partitionRange: " + partitionRange + "\n\n")
+    outputWriter.write("Number of Commits: " + totalNumCommits + "\n")
+    outputWriter.write("Number of Aborts: " + totalNumAborts + "\n")
+    outputWriter.write("Throughput: " + (totalNumCommits.get().toDouble * 1000) / experimentTime
+      + "\n")
+    outputWriter.write("Total Latency: " + totalLatencies.get() + " ns\n")
+    outputWriter.write("Total Latency: " + totalCommitLatencies.get() + " ns\n")
+    outputWriter.write("Average Latency: " + (totalLatencies.get().toDouble/
+      (1000000 * (totalNumCommits.get + totalNumAborts.get))) + "ms\n\n\n")
+    outputWriter.close()
+
   }
 
   private def convertToMilliseconds(time : String): Int = {
@@ -126,22 +170,35 @@ object Experiment3 {
   private class threadOps(dataConfig : JsonNode, expConfig : Map[String, String], seed : Long,
                           execDryRun : AtomicBoolean, execExperiment : AtomicBoolean,
                           totalNumCommits: AtomicLong, totalNumAborts: AtomicLong,
-                          totalLatencies: AtomicLong) extends Runnable{
-    
-    private val rwRatio = expConfig.getOrElse("readWriteRatio", "50:50").split(":").map(_.toInt)
-    private val joinSizeRange = expConfig.getOrElse("joinSizeRange", "1:8").split(":").map(_.toInt)
-    private val tableDistExponent = expConfig.getOrElse("tableDistExponent", "2").toDouble
-    private val partitionDistExponent = expConfig.getOrElse("partitionDistExponent", "2").toDouble
-    private val partitionRange = expConfig.getOrElse("partitionRange", "1:30")
+                          totalLatencies: AtomicLong, totalCommitLatencies: AtomicLong)
+      extends Runnable{
+    private val rwRatio = expConfig("readWriteRatio").split(":").map(_.toInt)
+    private val dimSizeRange = expConfig("dimSizeRange").split(":").map(_.toInt)
+    private val factSizeRange = expConfig("factSizeRange").split(":").map(_.toInt)
+    private val tableDistExponent = expConfig("tableDistExponent").toDouble
+    private val partitionDistExponent = expConfig("partitionDistExponent").toDouble
+    private val partitionRange = expConfig("partitionRange")
       .split(":").map(_.toInt)
-    private val treeAddress = expConfig.getOrElse("treeAddress", "localhost:9876")
+    private val treeAddress = expConfig("treeAddress")
+
     private val dbName = dataConfig.get("databaseName").asText()
     private val tablesJson = dataConfig.get("tables")
-    private val numTables = tablesJson.size()
     private val totalRatio = rwRatio.sum
     private var latencies: Long = 0
+    private var commitLatencies: Long = 0
     private var numCommits = 0
     private var numAborts = 0
+
+    private val factTables = ArrayBuffer[JsonNode]()
+    private val dimTables = ArrayBuffer[JsonNode]()
+    tablesJson.forEach { tableJson =>
+      if (tableJson.get("partitionSchema").isEmpty) {
+        dimTables.append(tableJson)
+      }
+      else {
+        factTables.append(tableJson)
+      }
+    }
 
     private val tree = new TreeExternalCatalog(treeAddress)
     private val dataGen = new RandomDataGenerator()
@@ -160,6 +217,7 @@ object Experiment3 {
       totalNumCommits.addAndGet(numCommits)
       totalNumAborts.addAndGet(numAborts)
       totalLatencies.addAndGet(latencies)
+      totalCommitLatencies.addAndGet(commitLatencies)
 
     }
 
@@ -167,39 +225,34 @@ object Experiment3 {
     private def runCycle(isDryRun : Boolean): Unit = {
       val read = dataGen.nextInt(1, totalRatio) <= rwRatio(0)
 
-      // pick tables to join
-      // do not pick all tables as 1 of them is destination table
-      val joinSize = dataGen.nextInt(joinSizeRange(0), joinSizeRange(1))
-      val joinTableIndices: Set[Int] = Set.empty[Int]
-      while (joinTableIndices.size < joinSize) {
-        joinTableIndices.add(dataGen.nextZipf(numTables, tableDistExponent))
+      // pick dimension tables
+      val dimSize = dataGen.nextInt(dimSizeRange(0), dimSizeRange(1))
+      val dimTableIndices: Set[Int] = Set.empty[Int]
+      while (dimTableIndices.size < dimSize) {
+        // there is some skew in selection of dimension table
+        dimTableIndices.add(dataGen.nextZipf(dimTables.size, tableDistExponent) - 1)
       }
-      val joinTableJsons = ArrayBuffer[JsonNode]()
-
-
-      joinTableIndices.foreach { tableIndex =>
-        if (read) {
-          // table distribution is different if query is read only
-          // last tables are more likely to be joined
-          joinTableJsons.append(tablesJson.get(numTables - tableIndex))
-        }
-        else {
-          // first tables are more likely to be joined
-          joinTableJsons.append(tablesJson.get(tableIndex - 1))
-        }
-
+      val dimTableJsons = ArrayBuffer[JsonNode]()
+      dimTableIndices.foreach { tableIndex =>
+        dimTableJsons.append(dimTables(tableIndex))
       }
-      // pick destination table: last table is more likely to be updated
-      var destTableIndex = numTables - dataGen.nextZipf(numTables, tableDistExponent)
-      while (joinTableIndices.contains(destTableIndex)) {
-        destTableIndex = numTables - dataGen.nextZipf(numTables, tableDistExponent)
+
+      // choose facts table
+      val factSize = dataGen.nextZipf(factSizeRange(0), factSizeRange(1))
+      val factTableIndices: Set[Int] = Set.empty[Int]
+      while (factTableIndices.size < factSize) {
+        // there is some skew in selection of facts table
+        factTableIndices.add(dataGen.nextZipf(factTables.size, tableDistExponent) - 1)
       }
-      val destTableJson = tablesJson.get(destTableIndex)
+      val factTableJsons = ArrayBuffer[JsonNode]()
+      factTableIndices.foreach { tableIndex =>
+        factTableJsons.append(factTables(tableIndex))
+      }
 
       // randomly pick partition ranges to be read
       // use array of arrays as  table may have multilevel partitions
-      val joinTablePartitionRanks = ArrayBuffer[ArrayBuffer[List[Int]]]()
-      joinTableJsons.foreach { tableJson =>
+      val factTablePartitionRanks = ArrayBuffer[ArrayBuffer[List[Int]]]()
+      factTableJsons.foreach { tableJson =>
         val partitionValsSeq = ArrayBuffer[List[Int]]()
         tableJson.get("partitionSchema").forEach { partitionCol =>
           if (partitionCol.get("type").asText() == "INT") {
@@ -219,22 +272,7 @@ object Experiment3 {
             partitionValsSeq.append(List(rangeMin, rangeMax))
           }
         }
-        joinTablePartitionRanks.append(partitionValsSeq)
-      }
-
-      // randomly pick destination partition of addFiles operation
-      val destTablePartitionRanks = ArrayBuffer[Int]()
-      destTableJson.get("partitionSchema").forEach { partitionCol =>
-        if (partitionCol.get("type").asText() == "INT") {
-          val partitionMax = partitionCol.get("max").asInt()
-          destTablePartitionRanks.append(dataGen.nextZipf(partitionMax, partitionDistExponent))
-        }
-        else if (partitionCol.get("type").asText() == "DATE") {
-          val minDate = LocalDate.parse(partitionCol.get("min").asText())
-          val maxDate = LocalDate.parse(partitionCol.get("max").asText())
-          val numDays = (ChronoUnit.DAYS.between(minDate, maxDate) + 1).toInt
-          destTablePartitionRanks.append(dataGen.nextZipf(numDays, partitionDistExponent))
-        }
+        factTablePartitionRanks.append(partitionValsSeq)
       }
 
       var retries = 0
@@ -244,30 +282,40 @@ object Experiment3 {
         if (read) {
           val startTime = Instant.now()
           val txn = tree.startTransaction(TxnMode.TXN_MODE_READ_ONLY)
-          scanTables(joinTableJsons, joinTablePartitionRanks, txn)
+          scanTables(dimTableJsons, factTableJsons, factTablePartitionRanks, txn)
           if (tree.commit(txn.get)) {
             success = true
           }
           val endTime = Instant.now()
-          latencies += Duration.between(startTime, endTime).toNanos()
+          if (!isDryRun) {
+            latencies += Duration.between(startTime, endTime).toNanos()
+            if (success) {
+              commitLatencies += Duration.between(startTime, endTime).toNanos()
+            }
+          }
         }
         // write operation
         else {
           val startTime = Instant.now()
           val txn = tree.startTransaction(TxnMode.TXN_MODE_READ_WRITE)
-          addBatch(destTableJson, destTablePartitionRanks, joinTableJsons,
-            joinTablePartitionRanks, txn)
+          addBatch(dimTableJsons, factTableJsons, factTablePartitionRanks, txn)
           if (tree.commit(txn.get)) {
             success = true
           }
           val endTime = Instant.now()
-          latencies += Duration.between(startTime, endTime).toNanos()
+          if (!isDryRun) {
+            latencies += Duration.between(startTime, endTime).toNanos()
+            if (success) {
+              commitLatencies += Duration.between(startTime, endTime).toNanos()
+            }
+          }
         }
 
         // if not dry run, collect the results
         if (!isDryRun) {
           if (success) {
             numCommits += 1
+
           }
           else {
             numAborts += 1
@@ -278,13 +326,31 @@ object Experiment3 {
       }
     }
 
+
     // joinTableJsons, joinTablePartitionVals, txn
-    private def scanTables(joinTableJsons : Seq[JsonNode],
-                           joinTablePartitionRanks: Seq[Seq[List[Int]]],
+    private def scanTables(dimTableJsons : Seq[JsonNode], factTableJsons : Seq[JsonNode],
+                           factTablePartitionRanks: Seq[Seq[List[Int]]],
                            txn: Option[TreeTxn]) : Unit = {
-      for (i <- 0 until joinTableJsons.size) {
-        val tableJson = joinTableJsons(i)
-        val ranks = joinTablePartitionRanks(i)
+
+      dimTableJsons.foreach { dimTableJson =>
+        val dimTable = tree.getTable(dbName, dimTableJson.get("name").asText(), txn)
+        if (dimTable == null) {
+          if (txn.get.isOK()) {
+            txn.get.setAbort(true)
+            tree.commit(txn.get)
+          }
+          return
+        }
+
+        val fileList = tree.listFiles(dimTable, txn)
+        if (!txn.get.isOK()) {
+          return
+        }
+      }
+
+      for (i <- factTableJsons.indices) {
+        val tableJson = factTableJsons(i)
+        val ranks = factTablePartitionRanks(i)
         val table = tree.getTable(dbName, tableJson.get("name").asText(), txn)
         if (table == null) {
           if (txn.get.isOK()) {
@@ -326,19 +392,20 @@ object Experiment3 {
 
     }
 
-    private def addBatch(destTableJson : JsonNode, destTablePartitionRanks: Seq[Int],
-                         joinTableJsons: Seq[JsonNode],
-                         joinTablePartitionRanks: Seq[Seq[List[Int]]],
+    private def addBatch(dimTableJsons : Seq[JsonNode], factTableJsons : Seq[JsonNode],
+                         factTablePartitionRanks: Seq[Seq[List[Int]]],
                          txn: Option[TreeTxn]) : Unit = {
 
-      if (!joinTableJsons.isEmpty) {
-        // pick partition range for each table and scan each table
-        scanTables(joinTableJsons, joinTablePartitionRanks, txn)
+      if (!dimTableJsons.isEmpty) {
+        // scan dimension tables to join with
+        scanTables(dimTableJsons, Seq.empty[JsonNode], factTablePartitionRanks, txn)
         if (!txn.get.isOK()) {
           return
         }
       }
-      // get the destination table to which files are added
+      // The first fact table is the destination
+      val destTableJson = factTableJsons(0)
+      val destTablePartitionRanks = factTablePartitionRanks(0)
       val destTable = tree.getTable(dbName, destTableJson.get("name").asText(), txn)
       if (destTable == null) {
         if (txn.get.isOK()) {
@@ -358,13 +425,13 @@ object Experiment3 {
         if (partitionCol.dataType.isInstanceOf[IntegralType]) {
           val partitionMax = partitionSchemaJson.get(i).get("max").asInt()
           val rank = destTablePartitionRanks(i)
-          destPartSpec.put(partitionCol.name, (partitionMax - rank + 1).toString)
+          destPartSpec.put(partitionCol.name, (partitionMax - rank.min + 1).toString)
         }
         // if date type, partition with most recent date is most likely
         if (partitionCol.dataType == DateType) {
           val maxDate = LocalDate.parse(partitionSchemaJson.get(i).get("max").asText())
           val rank = destTablePartitionRanks(i)
-          destPartSpec.put(partitionCol.name, maxDate.minusDays(rank - 1).toString)
+          destPartSpec.put(partitionCol.name, maxDate.minusDays(rank.min - 1).toString)
         }
 
       }

@@ -17,6 +17,8 @@
 
 package org.apache.spark.exp
 
+import java.io.File
+import java.io.FileWriter
 import java.time.Duration
 import java.time.Instant
 
@@ -27,6 +29,8 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import org.apache.spark.sql.connector.catalog.Identifier
 import org.apache.spark.sql.delta.catalog.DeltaTableV2
 import org.apache.spark.sql.execution.datasources.HadoopFsRelation
+
+
 
 /*
  * List of config parameters:
@@ -52,44 +56,24 @@ object Experiment1 {
       expConfig.put(config.getKey, config.getValue.asText())
     }
 
-    val dryRunIters = expConfig.getOrElse("dryRunIters", "4").toInt
+    val resultOutput = expConfig.getOrElse("resultOutput", "/tmp/experiment1.txt")
     val experimentIters = expConfig.getOrElse("experimentIters", "10").toInt
     val deltaDBName = expConfig.getOrElse("deltaDBName", "experiment1delta")
     val deltaTableName = expConfig.getOrElse("deltaTableName", "table1")
     val hmsDBName = expConfig.getOrElse("hmsDBName", "experiment1hms")
     val hmsTableName = expConfig.getOrElse("hmsTableName", "table1")
     val treeAddress = expConfig.getOrElse("treeAddress", "localhost:9876")
-    var treeTime : Long = 0
-    var hmsTime : Long = 0
-    var deltaTime : Long = 0
-
 
     val expUtil = new ExperimentUtil(treeAddress)
-
-    for (i <- 0 until dryRunIters) {
-      // list files, using TreeCatalog
-      val treeFiles = expUtil.tree.listFiles(hmsDBName, hmsTableName, None)
-
-      // list files, using HMS
-      val hmsPartitions = expUtil.hms.listPartitions(hmsDBName, hmsTableName)
-      hmsPartitions.foreach { partition =>
-        val hmsFiles = expUtil.hms_ext.listFiles(partition)
-      }
-
-      // list files, using DeltaLake
-      val table = expUtil.delta.loadTable(Identifier.of(Array(deltaDBName), deltaTableName))
-      val baseRelation = table.asInstanceOf[DeltaTableV2].toBaseRelation
-        .asInstanceOf[HadoopFsRelation]
-      val deltaPartitions = baseRelation.location.listFiles(Seq.empty, Seq.empty)
-
-    }
+    val outputWriter = new FileWriter(new File(resultOutput))
+    outputWriter.write("Tree,HMS,DeltaLake\n")
 
     for (i <- 0 until experimentIters) {
       // list files, using TreeCatalog
       val treeStartTime = Instant.now()
       val treeFiles = expUtil.tree.listFiles(hmsDBName, hmsTableName, None)
       val treeEndTime = Instant.now()
-      treeTime += Duration.between(treeStartTime, treeEndTime).toNanos()
+      val treeTime = Duration.between(treeStartTime, treeEndTime).toNanos()
 
       // list files, using HMS
       val hmsStartTime = Instant.now()
@@ -98,7 +82,7 @@ object Experiment1 {
         val hmsFiles = expUtil.hms_ext.listFiles(partition)
       }
       val hmsEndTime = Instant.now()
-      hmsTime += Duration.between(hmsStartTime, hmsEndTime).toNanos()
+      val hmsTime = Duration.between(hmsStartTime, hmsEndTime).toNanos()
 
       // list files, using DeltaLake
       val deltaStartTime = Instant.now()
@@ -107,13 +91,11 @@ object Experiment1 {
         .asInstanceOf[HadoopFsRelation]
       val deltaPartitions = baseRelation.location.listFiles(Seq.empty, Seq.empty)
       val deltaEndTime = Instant.now()
-      deltaTime += Duration.between(deltaStartTime, deltaEndTime).toNanos()
-
+      val deltaTime = Duration.between(deltaStartTime, deltaEndTime).toNanos()
+      outputWriter.write(treeTime + "," + hmsTime + "," + deltaTime + "\n")
+      outputWriter.flush()
     }
-
-    printf("Tree listFiles Latency: " + treeTime / (1000000 * experimentIters) + "ms\n")
-    printf("HMS listFiles Latency: " + hmsTime / (1000000 * experimentIters) + "ms\n")
-    printf("DeltaLake listFiles Latency: " + deltaTime / (1000000 * experimentIters) + "ms\n")
+    outputWriter.close()
 
   }
 
