@@ -7551,7 +7551,7 @@ public final class Grpccatalog {
     }
     /**
      * <pre>
-     * A predicate is either an expression or a wildcard.
+     * A predicate is either an expression, oid, or a wildcard.
      * </pre>
      *
      * Protobuf type {@code Predicate}
@@ -7881,7 +7881,7 @@ public final class Grpccatalog {
         }
         /**
          * <pre>
-         * A predicate is either an expression or a wildcard.
+         * A predicate is either an expression, oid, or a wildcard.
          * </pre>
          *
          * Protobuf type {@code Predicate}
@@ -14594,39 +14594,38 @@ public final class Grpccatalog {
             com.google.protobuf.MessageOrBuilder {
 
         /**
-         * <code>string path = 1;</code>
-         * @return The path.
-         */
-        java.lang.String getPath();
-        /**
-         * <code>string path = 1;</code>
-         * @return The bytes for path.
-         */
-        com.google.protobuf.ByteString
-        getPathBytes();
-
-        /**
-         * <code>string name = 2;</code>
+         * <code>string name = 1;</code>
          * @return The name.
          */
         java.lang.String getName();
         /**
-         * <code>string name = 2;</code>
+         * <code>string name = 1;</code>
          * @return The bytes for name.
          */
         com.google.protobuf.ByteString
         getNameBytes();
 
         /**
-         * <code>optional uint64 vid = 3;</code>
+         * <code>optional uint64 vid = 2;</code>
          * @return Whether the vid field is set.
          */
         boolean hasVid();
         /**
-         * <code>optional uint64 vid = 3;</code>
+         * <code>optional uint64 vid = 2;</code>
          * @return The vid.
          */
         long getVid();
+
+        /**
+         * <code>optional bool override = 3;</code>
+         * @return Whether the override field is set.
+         */
+        boolean hasOverride();
+        /**
+         * <code>optional bool override = 3;</code>
+         * @return The override.
+         */
+        boolean getOverride();
     }
     /**
      * <pre>
@@ -14646,7 +14645,6 @@ public final class Grpccatalog {
             super(builder);
         }
         private SnapshotRequest() {
-            path_ = "";
             name_ = "";
         }
 
@@ -14676,50 +14674,11 @@ public final class Grpccatalog {
         }
 
         private int bitField0_;
-        public static final int PATH_FIELD_NUMBER = 1;
-        @SuppressWarnings("serial")
-        private volatile java.lang.Object path_ = "";
-        /**
-         * <code>string path = 1;</code>
-         * @return The path.
-         */
-        @java.lang.Override
-        public java.lang.String getPath() {
-            java.lang.Object ref = path_;
-            if (ref instanceof java.lang.String) {
-                return (java.lang.String) ref;
-            } else {
-                com.google.protobuf.ByteString bs =
-                        (com.google.protobuf.ByteString) ref;
-                java.lang.String s = bs.toStringUtf8();
-                path_ = s;
-                return s;
-            }
-        }
-        /**
-         * <code>string path = 1;</code>
-         * @return The bytes for path.
-         */
-        @java.lang.Override
-        public com.google.protobuf.ByteString
-        getPathBytes() {
-            java.lang.Object ref = path_;
-            if (ref instanceof java.lang.String) {
-                com.google.protobuf.ByteString b =
-                        com.google.protobuf.ByteString.copyFromUtf8(
-                                (java.lang.String) ref);
-                path_ = b;
-                return b;
-            } else {
-                return (com.google.protobuf.ByteString) ref;
-            }
-        }
-
-        public static final int NAME_FIELD_NUMBER = 2;
+        public static final int NAME_FIELD_NUMBER = 1;
         @SuppressWarnings("serial")
         private volatile java.lang.Object name_ = "";
         /**
-         * <code>string name = 2;</code>
+         * <code>string name = 1;</code>
          * @return The name.
          */
         @java.lang.Override
@@ -14736,7 +14695,7 @@ public final class Grpccatalog {
             }
         }
         /**
-         * <code>string name = 2;</code>
+         * <code>string name = 1;</code>
          * @return The bytes for name.
          */
         @java.lang.Override
@@ -14754,10 +14713,10 @@ public final class Grpccatalog {
             }
         }
 
-        public static final int VID_FIELD_NUMBER = 3;
+        public static final int VID_FIELD_NUMBER = 2;
         private long vid_ = 0L;
         /**
-         * <code>optional uint64 vid = 3;</code>
+         * <code>optional uint64 vid = 2;</code>
          * @return Whether the vid field is set.
          */
         @java.lang.Override
@@ -14765,12 +14724,31 @@ public final class Grpccatalog {
             return ((bitField0_ & 0x00000001) != 0);
         }
         /**
-         * <code>optional uint64 vid = 3;</code>
+         * <code>optional uint64 vid = 2;</code>
          * @return The vid.
          */
         @java.lang.Override
         public long getVid() {
             return vid_;
+        }
+
+        public static final int OVERRIDE_FIELD_NUMBER = 3;
+        private boolean override_ = false;
+        /**
+         * <code>optional bool override = 3;</code>
+         * @return Whether the override field is set.
+         */
+        @java.lang.Override
+        public boolean hasOverride() {
+            return ((bitField0_ & 0x00000002) != 0);
+        }
+        /**
+         * <code>optional bool override = 3;</code>
+         * @return The override.
+         */
+        @java.lang.Override
+        public boolean getOverride() {
+            return override_;
         }
 
         private byte memoizedIsInitialized = -1;
@@ -14787,14 +14765,14 @@ public final class Grpccatalog {
         @java.lang.Override
         public void writeTo(com.google.protobuf.CodedOutputStream output)
                 throws java.io.IOException {
-            if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(path_)) {
-                com.google.protobuf.GeneratedMessageV3.writeString(output, 1, path_);
-            }
             if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(name_)) {
-                com.google.protobuf.GeneratedMessageV3.writeString(output, 2, name_);
+                com.google.protobuf.GeneratedMessageV3.writeString(output, 1, name_);
             }
             if (((bitField0_ & 0x00000001) != 0)) {
-                output.writeUInt64(3, vid_);
+                output.writeUInt64(2, vid_);
+            }
+            if (((bitField0_ & 0x00000002) != 0)) {
+                output.writeBool(3, override_);
             }
             getUnknownFields().writeTo(output);
         }
@@ -14805,15 +14783,16 @@ public final class Grpccatalog {
             if (size != -1) return size;
 
             size = 0;
-            if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(path_)) {
-                size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, path_);
-            }
             if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(name_)) {
-                size += com.google.protobuf.GeneratedMessageV3.computeStringSize(2, name_);
+                size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, name_);
             }
             if (((bitField0_ & 0x00000001) != 0)) {
                 size += com.google.protobuf.CodedOutputStream
-                        .computeUInt64Size(3, vid_);
+                        .computeUInt64Size(2, vid_);
+            }
+            if (((bitField0_ & 0x00000002) != 0)) {
+                size += com.google.protobuf.CodedOutputStream
+                        .computeBoolSize(3, override_);
             }
             size += getUnknownFields().getSerializedSize();
             memoizedSize = size;
@@ -14830,14 +14809,17 @@ public final class Grpccatalog {
             }
             Grpccatalog.SnapshotRequest other = (Grpccatalog.SnapshotRequest) obj;
 
-            if (!getPath()
-                    .equals(other.getPath())) return false;
             if (!getName()
                     .equals(other.getName())) return false;
             if (hasVid() != other.hasVid()) return false;
             if (hasVid()) {
                 if (getVid()
                         != other.getVid()) return false;
+            }
+            if (hasOverride() != other.hasOverride()) return false;
+            if (hasOverride()) {
+                if (getOverride()
+                        != other.getOverride()) return false;
             }
             if (!getUnknownFields().equals(other.getUnknownFields())) return false;
             return true;
@@ -14850,14 +14832,17 @@ public final class Grpccatalog {
             }
             int hash = 41;
             hash = (19 * hash) + getDescriptor().hashCode();
-            hash = (37 * hash) + PATH_FIELD_NUMBER;
-            hash = (53 * hash) + getPath().hashCode();
             hash = (37 * hash) + NAME_FIELD_NUMBER;
             hash = (53 * hash) + getName().hashCode();
             if (hasVid()) {
                 hash = (37 * hash) + VID_FIELD_NUMBER;
                 hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
                         getVid());
+            }
+            if (hasOverride()) {
+                hash = (37 * hash) + OVERRIDE_FIELD_NUMBER;
+                hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
+                        getOverride());
             }
             hash = (29 * hash) + getUnknownFields().hashCode();
             memoizedHashCode = hash;
@@ -14993,9 +14978,9 @@ public final class Grpccatalog {
             public Builder clear() {
                 super.clear();
                 bitField0_ = 0;
-                path_ = "";
                 name_ = "";
                 vid_ = 0L;
+                override_ = false;
                 return this;
             }
 
@@ -15030,15 +15015,16 @@ public final class Grpccatalog {
             private void buildPartial0(Grpccatalog.SnapshotRequest result) {
                 int from_bitField0_ = bitField0_;
                 if (((from_bitField0_ & 0x00000001) != 0)) {
-                    result.path_ = path_;
-                }
-                if (((from_bitField0_ & 0x00000002) != 0)) {
                     result.name_ = name_;
                 }
                 int to_bitField0_ = 0;
-                if (((from_bitField0_ & 0x00000004) != 0)) {
+                if (((from_bitField0_ & 0x00000002) != 0)) {
                     result.vid_ = vid_;
                     to_bitField0_ |= 0x00000001;
+                }
+                if (((from_bitField0_ & 0x00000004) != 0)) {
+                    result.override_ = override_;
+                    to_bitField0_ |= 0x00000002;
                 }
                 result.bitField0_ |= to_bitField0_;
             }
@@ -15087,18 +15073,16 @@ public final class Grpccatalog {
 
             public Builder mergeFrom(Grpccatalog.SnapshotRequest other) {
                 if (other == Grpccatalog.SnapshotRequest.getDefaultInstance()) return this;
-                if (!other.getPath().isEmpty()) {
-                    path_ = other.path_;
-                    bitField0_ |= 0x00000001;
-                    onChanged();
-                }
                 if (!other.getName().isEmpty()) {
                     name_ = other.name_;
-                    bitField0_ |= 0x00000002;
+                    bitField0_ |= 0x00000001;
                     onChanged();
                 }
                 if (other.hasVid()) {
                     setVid(other.getVid());
+                }
+                if (other.hasOverride()) {
+                    setOverride(other.getOverride());
                 }
                 this.mergeUnknownFields(other.getUnknownFields());
                 onChanged();
@@ -15127,17 +15111,17 @@ public final class Grpccatalog {
                                 done = true;
                                 break;
                             case 10: {
-                                path_ = input.readStringRequireUtf8();
+                                name_ = input.readStringRequireUtf8();
                                 bitField0_ |= 0x00000001;
                                 break;
                             } // case 10
-                            case 18: {
-                                name_ = input.readStringRequireUtf8();
+                            case 16: {
+                                vid_ = input.readUInt64();
                                 bitField0_ |= 0x00000002;
                                 break;
-                            } // case 18
+                            } // case 16
                             case 24: {
-                                vid_ = input.readUInt64();
+                                override_ = input.readBool();
                                 bitField0_ |= 0x00000004;
                                 break;
                             } // case 24
@@ -15158,81 +15142,9 @@ public final class Grpccatalog {
             }
             private int bitField0_;
 
-            private java.lang.Object path_ = "";
-            /**
-             * <code>string path = 1;</code>
-             * @return The path.
-             */
-            public java.lang.String getPath() {
-                java.lang.Object ref = path_;
-                if (!(ref instanceof java.lang.String)) {
-                    com.google.protobuf.ByteString bs =
-                            (com.google.protobuf.ByteString) ref;
-                    java.lang.String s = bs.toStringUtf8();
-                    path_ = s;
-                    return s;
-                } else {
-                    return (java.lang.String) ref;
-                }
-            }
-            /**
-             * <code>string path = 1;</code>
-             * @return The bytes for path.
-             */
-            public com.google.protobuf.ByteString
-            getPathBytes() {
-                java.lang.Object ref = path_;
-                if (ref instanceof String) {
-                    com.google.protobuf.ByteString b =
-                            com.google.protobuf.ByteString.copyFromUtf8(
-                                    (java.lang.String) ref);
-                    path_ = b;
-                    return b;
-                } else {
-                    return (com.google.protobuf.ByteString) ref;
-                }
-            }
-            /**
-             * <code>string path = 1;</code>
-             * @param value The path to set.
-             * @return This builder for chaining.
-             */
-            public Builder setPath(
-                    java.lang.String value) {
-                if (value == null) { throw new NullPointerException(); }
-                path_ = value;
-                bitField0_ |= 0x00000001;
-                onChanged();
-                return this;
-            }
-            /**
-             * <code>string path = 1;</code>
-             * @return This builder for chaining.
-             */
-            public Builder clearPath() {
-                path_ = getDefaultInstance().getPath();
-                bitField0_ = (bitField0_ & ~0x00000001);
-                onChanged();
-                return this;
-            }
-            /**
-             * <code>string path = 1;</code>
-             * @param value The bytes for path to set.
-             * @return This builder for chaining.
-             */
-            public Builder setPathBytes(
-                    com.google.protobuf.ByteString value) {
-                if (value == null) { throw new NullPointerException(); }
-                checkByteStringIsUtf8(value);
-                path_ = value;
-                bitField0_ |= 0x00000001;
-                onChanged();
-                return this;
-            }
-
             private java.lang.Object name_ = "";
             /**
-             * <code>string name = 2;</code>
+             * <code>string name = 1;</code>
              * @return The name.
              */
             public java.lang.String getName() {
@@ -15248,7 +15160,7 @@ public final class Grpccatalog {
                 }
             }
             /**
-             * <code>string name = 2;</code>
+             * <code>string name = 1;</code>
              * @return The bytes for name.
              */
             public com.google.protobuf.ByteString
@@ -15265,7 +15177,7 @@ public final class Grpccatalog {
                 }
             }
             /**
-             * <code>string name = 2;</code>
+             * <code>string name = 1;</code>
              * @param value The name to set.
              * @return This builder for chaining.
              */
@@ -15273,22 +15185,22 @@ public final class Grpccatalog {
                     java.lang.String value) {
                 if (value == null) { throw new NullPointerException(); }
                 name_ = value;
-                bitField0_ |= 0x00000002;
+                bitField0_ |= 0x00000001;
                 onChanged();
                 return this;
             }
             /**
-             * <code>string name = 2;</code>
+             * <code>string name = 1;</code>
              * @return This builder for chaining.
              */
             public Builder clearName() {
                 name_ = getDefaultInstance().getName();
-                bitField0_ = (bitField0_ & ~0x00000002);
+                bitField0_ = (bitField0_ & ~0x00000001);
                 onChanged();
                 return this;
             }
             /**
-             * <code>string name = 2;</code>
+             * <code>string name = 1;</code>
              * @param value The bytes for name to set.
              * @return This builder for chaining.
              */
@@ -15297,22 +15209,22 @@ public final class Grpccatalog {
                 if (value == null) { throw new NullPointerException(); }
                 checkByteStringIsUtf8(value);
                 name_ = value;
-                bitField0_ |= 0x00000002;
+                bitField0_ |= 0x00000001;
                 onChanged();
                 return this;
             }
 
             private long vid_ ;
             /**
-             * <code>optional uint64 vid = 3;</code>
+             * <code>optional uint64 vid = 2;</code>
              * @return Whether the vid field is set.
              */
             @java.lang.Override
             public boolean hasVid() {
-                return ((bitField0_ & 0x00000004) != 0);
+                return ((bitField0_ & 0x00000002) != 0);
             }
             /**
-             * <code>optional uint64 vid = 3;</code>
+             * <code>optional uint64 vid = 2;</code>
              * @return The vid.
              */
             @java.lang.Override
@@ -15320,24 +15232,64 @@ public final class Grpccatalog {
                 return vid_;
             }
             /**
-             * <code>optional uint64 vid = 3;</code>
+             * <code>optional uint64 vid = 2;</code>
              * @param value The vid to set.
              * @return This builder for chaining.
              */
             public Builder setVid(long value) {
 
                 vid_ = value;
+                bitField0_ |= 0x00000002;
+                onChanged();
+                return this;
+            }
+            /**
+             * <code>optional uint64 vid = 2;</code>
+             * @return This builder for chaining.
+             */
+            public Builder clearVid() {
+                bitField0_ = (bitField0_ & ~0x00000002);
+                vid_ = 0L;
+                onChanged();
+                return this;
+            }
+
+            private boolean override_ ;
+            /**
+             * <code>optional bool override = 3;</code>
+             * @return Whether the override field is set.
+             */
+            @java.lang.Override
+            public boolean hasOverride() {
+                return ((bitField0_ & 0x00000004) != 0);
+            }
+            /**
+             * <code>optional bool override = 3;</code>
+             * @return The override.
+             */
+            @java.lang.Override
+            public boolean getOverride() {
+                return override_;
+            }
+            /**
+             * <code>optional bool override = 3;</code>
+             * @param value The override to set.
+             * @return This builder for chaining.
+             */
+            public Builder setOverride(boolean value) {
+
+                override_ = value;
                 bitField0_ |= 0x00000004;
                 onChanged();
                 return this;
             }
             /**
-             * <code>optional uint64 vid = 3;</code>
+             * <code>optional bool override = 3;</code>
              * @return This builder for chaining.
              */
-            public Builder clearVid() {
+            public Builder clearOverride() {
                 bitField0_ = (bitField0_ & ~0x00000004);
-                vid_ = 0L;
+                override_ = false;
                 onChanged();
                 return this;
             }
@@ -15985,6 +15937,18 @@ public final class Grpccatalog {
         getSrcPathBytes();
 
         /**
+         * <code>string dest_path = 2;</code>
+         * @return The destPath.
+         */
+        java.lang.String getDestPath();
+        /**
+         * <code>string dest_path = 2;</code>
+         * @return The bytes for destPath.
+         */
+        com.google.protobuf.ByteString
+        getDestPathBytes();
+
+        /**
          * <code>optional uint64 vid = 3;</code>
          * @return Whether the vid field is set.
          */
@@ -16014,6 +15978,7 @@ public final class Grpccatalog {
         }
         private CloneRequest() {
             srcPath_ = "";
+            destPath_ = "";
         }
 
         @java.lang.Override
@@ -16081,6 +16046,45 @@ public final class Grpccatalog {
             }
         }
 
+        public static final int DEST_PATH_FIELD_NUMBER = 2;
+        @SuppressWarnings("serial")
+        private volatile java.lang.Object destPath_ = "";
+        /**
+         * <code>string dest_path = 2;</code>
+         * @return The destPath.
+         */
+        @java.lang.Override
+        public java.lang.String getDestPath() {
+            java.lang.Object ref = destPath_;
+            if (ref instanceof java.lang.String) {
+                return (java.lang.String) ref;
+            } else {
+                com.google.protobuf.ByteString bs =
+                        (com.google.protobuf.ByteString) ref;
+                java.lang.String s = bs.toStringUtf8();
+                destPath_ = s;
+                return s;
+            }
+        }
+        /**
+         * <code>string dest_path = 2;</code>
+         * @return The bytes for destPath.
+         */
+        @java.lang.Override
+        public com.google.protobuf.ByteString
+        getDestPathBytes() {
+            java.lang.Object ref = destPath_;
+            if (ref instanceof java.lang.String) {
+                com.google.protobuf.ByteString b =
+                        com.google.protobuf.ByteString.copyFromUtf8(
+                                (java.lang.String) ref);
+                destPath_ = b;
+                return b;
+            } else {
+                return (com.google.protobuf.ByteString) ref;
+            }
+        }
+
         public static final int VID_FIELD_NUMBER = 3;
         private long vid_ = 0L;
         /**
@@ -16117,6 +16121,9 @@ public final class Grpccatalog {
             if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(srcPath_)) {
                 com.google.protobuf.GeneratedMessageV3.writeString(output, 1, srcPath_);
             }
+            if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(destPath_)) {
+                com.google.protobuf.GeneratedMessageV3.writeString(output, 2, destPath_);
+            }
             if (((bitField0_ & 0x00000001) != 0)) {
                 output.writeUInt64(3, vid_);
             }
@@ -16131,6 +16138,9 @@ public final class Grpccatalog {
             size = 0;
             if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(srcPath_)) {
                 size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, srcPath_);
+            }
+            if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(destPath_)) {
+                size += com.google.protobuf.GeneratedMessageV3.computeStringSize(2, destPath_);
             }
             if (((bitField0_ & 0x00000001) != 0)) {
                 size += com.google.protobuf.CodedOutputStream
@@ -16153,6 +16163,8 @@ public final class Grpccatalog {
 
             if (!getSrcPath()
                     .equals(other.getSrcPath())) return false;
+            if (!getDestPath()
+                    .equals(other.getDestPath())) return false;
             if (hasVid() != other.hasVid()) return false;
             if (hasVid()) {
                 if (getVid()
@@ -16171,6 +16183,8 @@ public final class Grpccatalog {
             hash = (19 * hash) + getDescriptor().hashCode();
             hash = (37 * hash) + SRC_PATH_FIELD_NUMBER;
             hash = (53 * hash) + getSrcPath().hashCode();
+            hash = (37 * hash) + DEST_PATH_FIELD_NUMBER;
+            hash = (53 * hash) + getDestPath().hashCode();
             if (hasVid()) {
                 hash = (37 * hash) + VID_FIELD_NUMBER;
                 hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
@@ -16311,6 +16325,7 @@ public final class Grpccatalog {
                 super.clear();
                 bitField0_ = 0;
                 srcPath_ = "";
+                destPath_ = "";
                 vid_ = 0L;
                 return this;
             }
@@ -16348,8 +16363,11 @@ public final class Grpccatalog {
                 if (((from_bitField0_ & 0x00000001) != 0)) {
                     result.srcPath_ = srcPath_;
                 }
-                int to_bitField0_ = 0;
                 if (((from_bitField0_ & 0x00000002) != 0)) {
+                    result.destPath_ = destPath_;
+                }
+                int to_bitField0_ = 0;
+                if (((from_bitField0_ & 0x00000004) != 0)) {
                     result.vid_ = vid_;
                     to_bitField0_ |= 0x00000001;
                 }
@@ -16405,6 +16423,11 @@ public final class Grpccatalog {
                     bitField0_ |= 0x00000001;
                     onChanged();
                 }
+                if (!other.getDestPath().isEmpty()) {
+                    destPath_ = other.destPath_;
+                    bitField0_ |= 0x00000002;
+                    onChanged();
+                }
                 if (other.hasVid()) {
                     setVid(other.getVid());
                 }
@@ -16439,9 +16462,14 @@ public final class Grpccatalog {
                                 bitField0_ |= 0x00000001;
                                 break;
                             } // case 10
+                            case 18: {
+                                destPath_ = input.readStringRequireUtf8();
+                                bitField0_ |= 0x00000002;
+                                break;
+                            } // case 18
                             case 24: {
                                 vid_ = input.readUInt64();
-                                bitField0_ |= 0x00000002;
+                                bitField0_ |= 0x00000004;
                                 break;
                             } // case 24
                             default: {
@@ -16533,6 +16561,78 @@ public final class Grpccatalog {
                 return this;
             }
 
+            private java.lang.Object destPath_ = "";
+            /**
+             * <code>string dest_path = 2;</code>
+             * @return The destPath.
+             */
+            public java.lang.String getDestPath() {
+                java.lang.Object ref = destPath_;
+                if (!(ref instanceof java.lang.String)) {
+                    com.google.protobuf.ByteString bs =
+                            (com.google.protobuf.ByteString) ref;
+                    java.lang.String s = bs.toStringUtf8();
+                    destPath_ = s;
+                    return s;
+                } else {
+                    return (java.lang.String) ref;
+                }
+            }
+            /**
+             * <code>string dest_path = 2;</code>
+             * @return The bytes for destPath.
+             */
+            public com.google.protobuf.ByteString
+            getDestPathBytes() {
+                java.lang.Object ref = destPath_;
+                if (ref instanceof String) {
+                    com.google.protobuf.ByteString b =
+                            com.google.protobuf.ByteString.copyFromUtf8(
+                                    (java.lang.String) ref);
+                    destPath_ = b;
+                    return b;
+                } else {
+                    return (com.google.protobuf.ByteString) ref;
+                }
+            }
+            /**
+             * <code>string dest_path = 2;</code>
+             * @param value The destPath to set.
+             * @return This builder for chaining.
+             */
+            public Builder setDestPath(
+                    java.lang.String value) {
+                if (value == null) { throw new NullPointerException(); }
+                destPath_ = value;
+                bitField0_ |= 0x00000002;
+                onChanged();
+                return this;
+            }
+            /**
+             * <code>string dest_path = 2;</code>
+             * @return This builder for chaining.
+             */
+            public Builder clearDestPath() {
+                destPath_ = getDefaultInstance().getDestPath();
+                bitField0_ = (bitField0_ & ~0x00000002);
+                onChanged();
+                return this;
+            }
+            /**
+             * <code>string dest_path = 2;</code>
+             * @param value The bytes for destPath to set.
+             * @return This builder for chaining.
+             */
+            public Builder setDestPathBytes(
+                    com.google.protobuf.ByteString value) {
+                if (value == null) { throw new NullPointerException(); }
+                checkByteStringIsUtf8(value);
+                destPath_ = value;
+                bitField0_ |= 0x00000002;
+                onChanged();
+                return this;
+            }
+
             private long vid_ ;
             /**
              * <code>optional uint64 vid = 3;</code>
@@ -16540,7 +16640,7 @@ public final class Grpccatalog {
              */
             @java.lang.Override
             public boolean hasVid() {
-                return ((bitField0_ & 0x00000002) != 0);
+                return ((bitField0_ & 0x00000004) != 0);
             }
             /**
              * <code>optional uint64 vid = 3;</code>
@@ -16558,7 +16658,7 @@ public final class Grpccatalog {
             public Builder setVid(long value) {
 
                 vid_ = value;
-                bitField0_ |= 0x00000002;
+                bitField0_ |= 0x00000004;
                 onChanged();
                 return this;
             }
@@ -16567,7 +16667,7 @@ public final class Grpccatalog {
              * @return This builder for chaining.
              */
             public Builder clearVid() {
-                bitField0_ = (bitField0_ & ~0x00000002);
+                bitField0_ = (bitField0_ & ~0x00000004);
                 vid_ = 0L;
                 onChanged();
                 return this;
@@ -16647,19 +16747,7 @@ public final class Grpccatalog {
         boolean getSuccess();
 
         /**
-         * <code>string dest_path = 2;</code>
-         * @return The destPath.
-         */
-        java.lang.String getDestPath();
-        /**
-         * <code>string dest_path = 2;</code>
-         * @return The bytes for destPath.
-         */
-        com.google.protobuf.ByteString
-        getDestPathBytes();
-
-        /**
-         * <code>uint64 vid = 3;</code>
+         * <code>uint64 vid = 2;</code>
          * @return The vid.
          */
         long getVid();
@@ -16682,7 +16770,6 @@ public final class Grpccatalog {
             super(builder);
         }
         private CloneResponse() {
-            destPath_ = "";
         }
 
         @java.lang.Override
@@ -16721,49 +16808,10 @@ public final class Grpccatalog {
             return success_;
         }
 
-        public static final int DEST_PATH_FIELD_NUMBER = 2;
-        @SuppressWarnings("serial")
-        private volatile java.lang.Object destPath_ = "";
-        /**
-         * <code>string dest_path = 2;</code>
-         * @return The destPath.
-         */
-        @java.lang.Override
-        public java.lang.String getDestPath() {
-            java.lang.Object ref = destPath_;
-            if (ref instanceof java.lang.String) {
-                return (java.lang.String) ref;
-            } else {
-                com.google.protobuf.ByteString bs =
-                        (com.google.protobuf.ByteString) ref;
-                java.lang.String s = bs.toStringUtf8();
-                destPath_ = s;
-                return s;
-            }
-        }
-        /**
-         * <code>string dest_path = 2;</code>
-         * @return The bytes for destPath.
-         */
-        @java.lang.Override
-        public com.google.protobuf.ByteString
-        getDestPathBytes() {
-            java.lang.Object ref = destPath_;
-            if (ref instanceof java.lang.String) {
-                com.google.protobuf.ByteString b =
-                        com.google.protobuf.ByteString.copyFromUtf8(
-                                (java.lang.String) ref);
-                destPath_ = b;
-                return b;
-            } else {
-                return (com.google.protobuf.ByteString) ref;
-            }
-        }
-
-        public static final int VID_FIELD_NUMBER = 3;
+        public static final int VID_FIELD_NUMBER = 2;
         private long vid_ = 0L;
         /**
-         * <code>uint64 vid = 3;</code>
+         * <code>uint64 vid = 2;</code>
          * @return The vid.
          */
         @java.lang.Override
@@ -16788,11 +16836,8 @@ public final class Grpccatalog {
             if (success_ != false) {
                 output.writeBool(1, success_);
             }
-            if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(destPath_)) {
-                com.google.protobuf.GeneratedMessageV3.writeString(output, 2, destPath_);
-            }
             if (vid_ != 0L) {
-                output.writeUInt64(3, vid_);
+                output.writeUInt64(2, vid_);
             }
             getUnknownFields().writeTo(output);
         }
@@ -16807,12 +16852,9 @@ public final class Grpccatalog {
                 size += com.google.protobuf.CodedOutputStream
                         .computeBoolSize(1, success_);
             }
-            if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(destPath_)) {
-                size += com.google.protobuf.GeneratedMessageV3.computeStringSize(2, destPath_);
-            }
             if (vid_ != 0L) {
                 size += com.google.protobuf.CodedOutputStream
-                        .computeUInt64Size(3, vid_);
+                        .computeUInt64Size(2, vid_);
             }
             size += getUnknownFields().getSerializedSize();
             memoizedSize = size;
@@ -16831,8 +16873,6 @@ public final class Grpccatalog {
 
             if (getSuccess()
                     != other.getSuccess()) return false;
-            if (!getDestPath()
-                    .equals(other.getDestPath())) return false;
             if (getVid()
                     != other.getVid()) return false;
             if (!getUnknownFields().equals(other.getUnknownFields())) return false;
@@ -16849,8 +16889,6 @@ public final class Grpccatalog {
             hash = (37 * hash) + SUCCESS_FIELD_NUMBER;
             hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
                     getSuccess());
-            hash = (37 * hash) + DEST_PATH_FIELD_NUMBER;
-            hash = (53 * hash) + getDestPath().hashCode();
             hash = (37 * hash) + VID_FIELD_NUMBER;
             hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
                     getVid());
@@ -16989,7 +17027,6 @@ public final class Grpccatalog {
                 super.clear();
                 bitField0_ = 0;
                 success_ = false;
-                destPath_ = "";
                 vid_ = 0L;
                 return this;
             }
@@ -17028,9 +17065,6 @@ public final class Grpccatalog {
                     result.success_ = success_;
                 }
                 if (((from_bitField0_ & 0x00000002) != 0)) {
-                    result.destPath_ = destPath_;
-                }
-                if (((from_bitField0_ & 0x00000004) != 0)) {
                     result.vid_ = vid_;
                 }
             }
@@ -17082,11 +17116,6 @@ public final class Grpccatalog {
                 if (other.getSuccess() != false) {
                     setSuccess(other.getSuccess());
                 }
-                if (!other.getDestPath().isEmpty()) {
-                    destPath_ = other.destPath_;
-                    bitField0_ |= 0x00000002;
-                    onChanged();
-                }
                 if (other.getVid() != 0L) {
                     setVid(other.getVid());
                 }
@@ -17121,16 +17150,11 @@ public final class Grpccatalog {
                                 bitField0_ |= 0x00000001;
                                 break;
                             } // case 8
-                            case 18: {
-                                destPath_ = input.readStringRequireUtf8();
+                            case 16: {
+                                vid_ = input.readUInt64();
                                 bitField0_ |= 0x00000002;
                                 break;
-                            } // case 18
-                            case 24: {
-                                vid_ = input.readUInt64();
-                                bitField0_ |= 0x00000004;
-                                break;
-                            } // case 24
+                            } // case 16
                             default: {
                                 if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                                     done = true; // was an endgroup tag
@@ -17180,81 +17204,9 @@ public final class Grpccatalog {
                 return this;
             }
 
-            private java.lang.Object destPath_ = "";
-            /**
-             * <code>string dest_path = 2;</code>
-             * @return The destPath.
-             */
-            public java.lang.String getDestPath() {
-                java.lang.Object ref = destPath_;
-                if (!(ref instanceof java.lang.String)) {
-                    com.google.protobuf.ByteString bs =
-                            (com.google.protobuf.ByteString) ref;
-                    java.lang.String s = bs.toStringUtf8();
-                    destPath_ = s;
-                    return s;
-                } else {
-                    return (java.lang.String) ref;
-                }
-            }
-            /**
-             * <code>string dest_path = 2;</code>
-             * @return The bytes for destPath.
-             */
-            public com.google.protobuf.ByteString
-            getDestPathBytes() {
-                java.lang.Object ref = destPath_;
-                if (ref instanceof String) {
-                    com.google.protobuf.ByteString b =
-                            com.google.protobuf.ByteString.copyFromUtf8(
-                                    (java.lang.String) ref);
-                    destPath_ = b;
-                    return b;
-                } else {
-                    return (com.google.protobuf.ByteString) ref;
-                }
-            }
-            /**
-             * <code>string dest_path = 2;</code>
-             * @param value The destPath to set.
-             * @return This builder for chaining.
-             */
-            public Builder setDestPath(
-                    java.lang.String value) {
-                if (value == null) { throw new NullPointerException(); }
-                destPath_ = value;
-                bitField0_ |= 0x00000002;
-                onChanged();
-                return this;
-            }
-            /**
-             * <code>string dest_path = 2;</code>
-             * @return This builder for chaining.
-             */
-            public Builder clearDestPath() {
-                destPath_ = getDefaultInstance().getDestPath();
-                bitField0_ = (bitField0_ & ~0x00000002);
-                onChanged();
-                return this;
-            }
-            /**
-             * <code>string dest_path = 2;</code>
-             * @param value The bytes for destPath to set.
-             * @return This builder for chaining.
-             */
-            public Builder setDestPathBytes(
-                    com.google.protobuf.ByteString value) {
-                if (value == null) { throw new NullPointerException(); }
-                checkByteStringIsUtf8(value);
-                destPath_ = value;
-                bitField0_ |= 0x00000002;
-                onChanged();
-                return this;
-            }
-
             private long vid_ ;
             /**
-             * <code>uint64 vid = 3;</code>
+             * <code>uint64 vid = 2;</code>
              * @return The vid.
              */
             @java.lang.Override
@@ -17262,23 +17214,23 @@ public final class Grpccatalog {
                 return vid_;
             }
             /**
-             * <code>uint64 vid = 3;</code>
+             * <code>uint64 vid = 2;</code>
              * @param value The vid to set.
              * @return This builder for chaining.
              */
             public Builder setVid(long value) {
 
                 vid_ = value;
-                bitField0_ |= 0x00000004;
+                bitField0_ |= 0x00000002;
                 onChanged();
                 return this;
             }
             /**
-             * <code>uint64 vid = 3;</code>
+             * <code>uint64 vid = 2;</code>
              * @return This builder for chaining.
              */
             public Builder clearVid() {
-                bitField0_ = (bitField0_ & ~0x00000004);
+                bitField0_ = (bitField0_ & ~0x00000002);
                 vid_ = 0L;
                 onChanged();
                 return this;
@@ -27196,72 +27148,73 @@ public final class Grpccatalog {
                         "\006\n\004node\"-\n\017StartTxnRequest\022\032\n\010txn_mode\030\001" +
                         " \001(\0162\010.TxnMode\"P\n\020StartTxnResponse\022\017\n\007su" +
                         "ccess\030\001 \001(\010\022\013\n\003vid\030\002 \001(\004\022\023\n\006txn_id\030\003 \001(\004" +
-                        "H\000\210\001\001B\t\n\007_txn_id\"G\n\017SnapshotRequest\022\014\n\004p" +
-                        "ath\030\001 \001(\t\022\014\n\004name\030\002 \001(\t\022\020\n\003vid\030\003 \001(\004H\000\210\001" +
-                        "\001B\006\n\004_vid\"0\n\020SnapshotResponse\022\017\n\007success" +
-                        "\030\001 \001(\010\022\013\n\003vid\030\002 \001(\004\":\n\014CloneRequest\022\020\n\010s" +
-                        "rc_path\030\001 \001(\t\022\020\n\003vid\030\003 \001(\004H\000\210\001\001B\006\n\004_vid\"" +
-                        "@\n\rCloneResponse\022\017\n\007success\030\001 \001(\010\022\021\n\tdes" +
-                        "t_path\030\002 \001(\t\022\013\n\003vid\030\003 \001(\004\"!\n\021GetGarbageR" +
-                        "equest\022\014\n\004path\030\001 \001(\t\"%\n\022GetGarbageRespon" +
-                        "se\022\017\n\007garbage\030\001 \003(\014\"#\n\023ClearGarbageReque" +
-                        "st\022\014\n\004pids\030\001 \003(\003\"\'\n\024ClearGarbageResponse" +
-                        "\022\017\n\007success\030\001 \001(\010\"2\n\021DefineTypeRequest\022\035" +
-                        "\n\010type_def\030\001 \001(\0132\013.ObjTypeDef\"%\n\022DefineT" +
-                        "ypeResponse\022\017\n\007success\030\001 \001(\010\"\313\001\n\023Execute" +
-                        "QueryRequest\022\021\n\tbase_only\030\001 \001(\010\022\020\n\003vid\030\002" +
-                        " \001(\004H\001\210\001\001\022\023\n\006txn_id\030\003 \001(\004H\002\210\001\001\022\030\n\013return" +
-                        "_type\030\004 \001(\rH\003\210\001\001\022\037\n\nparse_tree\030\005 \001(\0132\t.P" +
-                        "athExprH\000\022\023\n\tquery_str\030\006 \001(\tH\000B\007\n\005queryB" +
-                        "\006\n\004_vidB\t\n\007_txn_idB\016\n\014_return_type\"x\n\024Ex" +
-                        "ecuteQueryResponse\022\020\n\010leaf_obj\030\001 \001(\010\022\021\n\t" +
-                        "base_only\030\002 \001(\010\022\013\n\003vid\030\003 \001(\004\022\020\n\010obj_list" +
-                        "\030\004 \001(\014\022\022\n\005abort\030\005 \001(\010H\000\210\001\001B\010\n\006_abort\"X\n\r" +
-                        "CommitRequest\022\016\n\006txn_id\030\001 \001(\004\022\031\n\twrite_s" +
-                        "et\030\002 \003(\0132\006.Write\022\022\n\005abort\030\003 \001(\010H\000\210\001\001B\010\n\006" +
-                        "_abort\"!\n\016CommitResponse\022\017\n\007success\030\001 \001(" +
-                        "\010\"=\n\020PreCommitRequest\022\016\n\006txn_id\030\001 \001(\004\022\031\n" +
-                        "\twrite_set\030\002 \003(\0132\006.Write\"$\n\021PreCommitRes" +
-                        "ponse\022\017\n\007success\030\001 \001(\010\"#\n\017BulkLoadReques" +
-                        "t\022\020\n\010obj_list\030\001 \003(\014\"=\n\020BulkLoadResponse\022" +
-                        "\017\n\007success\030\001 \001(\010\022\013\n\003vid\030\002 \001(\004\022\013\n\003err\030\003 \003" +
-                        "(\t*:\n\007TxnMode\022\026\n\022TXN_MODE_READ_ONLY\020\000\022\027\n" +
-                        "\023TXN_MODE_READ_WRITE\020\001*c\n\tWriteType\022\022\n\016W" +
-                        "RITE_TYPE_ADD\020\000\022\025\n\021WRITE_TYPE_REMOVE\020\001\022\024" +
-                        "\n\020WRITE_TYPE_MERGE\020\002\022\025\n\021WRITE_TYPE_UPDAT" +
-                        "E\020\003*\227\001\n\013ObjTypeName\022\032\n\026OBJ_TYPE_NAME_DAT" +
-                        "ABASE\020\000\022\027\n\023OBJ_TYPE_NAME_TABLE\020\001\022\033\n\027OBJ_" +
-                        "TYPE_NAME_PARTITION\020\002\022\035\n\031OBJ_TYPE_NAME_F" +
-                        "ILE_OBJECT\020\003\022\027\n\023OBJ_TYPE_NAME_OTHER\020\004*\034\n" +
-                        "\010Wildcard\022\020\n\014WILDCARD_ANY\020\000*\246\002\n\nExprOpTy" +
-                        "pe\022\025\n\021EXPR_OP_TYPE_LESS\020\000\022\030\n\024EXPR_OP_TYP" +
-                        "E_GREATER\020\001\022\027\n\023EXPR_OP_TYPE_EQUALS\020\002\022\034\n\030" +
-                        "EXPR_OP_TYPE_LESS_EQUALS\020\003\022\037\n\033EXPR_OP_TY" +
-                        "PE_GREATER_EQUALS\020\004\022\033\n\027EXPR_OP_TYPE_NOT_" +
-                        "EQUALS\020\005\022\025\n\021EXPR_OP_TYPE_PLUS\020\006\022\026\n\022EXPR_" +
-                        "OP_TYPE_MINUS\020\007\022\025\n\021EXPR_OP_TYPE_MULT\020\010\022\024" +
-                        "\n\020EXPR_OP_TYPE_DIV\020\t\022\026\n\022EXPR_OP_TYPE_OTH" +
-                        "ER\020\n*U\n\014ExprBoolType\022\025\n\021EXPR_BOOL_TYPE_O" +
-                        "R\020\000\022\026\n\022EXPR_BOOL_TYPE_AND\020\001\022\026\n\022EXPR_BOOL" +
-                        "_TYPE_NOT\020\002*\313\001\n\rExprConstType\022\032\n\026EXPR_CO" +
-                        "NST_TYPE_STRING\020\000\022\027\n\023EXPR_CONST_TYPE_INT" +
-                        "\020\001\022\030\n\024EXPR_CONST_TYPE_LONG\020\002\022\032\n\026EXPR_CON" +
-                        "ST_TYPE_DOUBLE\020\003\022\033\n\027EXPR_CONST_TYPE_BOOL" +
-                        "EAN\020\004\022\030\n\024EXPR_CONST_TYPE_DATE\020\005\022\030\n\024EXPR_" +
-                        "CONST_TYPE_NULL\020\0062\223\004\n\013GRPCCatalog\022/\n\010Sta" +
-                        "rtTxn\022\020.StartTxnRequest\032\021.StartTxnRespon" +
-                        "se\022/\n\010Snapshot\022\020.SnapshotRequest\032\021.Snaps" +
-                        "hotResponse\022&\n\005Clone\022\r.CloneRequest\032\016.Cl" +
-                        "oneResponse\0225\n\nGetGarbage\022\022.GetGarbageRe" +
-                        "quest\032\023.GetGarbageResponse\022;\n\014ClearGarba" +
-                        "ge\022\024.ClearGarbageRequest\032\025.ClearGarbageR" +
-                        "esponse\0225\n\nDefineType\022\022.DefineTypeReques" +
-                        "t\032\023.DefineTypeResponse\022=\n\014ExecuteQuery\022\024" +
-                        ".ExecuteQueryRequest\032\025.ExecuteQueryRespo" +
-                        "nse0\001\022)\n\006Commit\022\016.CommitRequest\032\017.Commit" +
-                        "Response\0222\n\tPreCommit\022\021.PreCommitRequest" +
-                        "\032\022.PreCommitResponse\0221\n\010BulkLoad\022\020.BulkL" +
-                        "oadRequest\032\021.BulkLoadResponse(\001b\006proto3"
+                        "H\000\210\001\001B\t\n\007_txn_id\"]\n\017SnapshotRequest\022\014\n\004n" +
+                        "ame\030\001 \001(\t\022\020\n\003vid\030\002 \001(\004H\000\210\001\001\022\025\n\010override\030" +
+                        "\003 \001(\010H\001\210\001\001B\006\n\004_vidB\013\n\t_override\"0\n\020Snaps" +
+                        "hotResponse\022\017\n\007success\030\001 \001(\010\022\013\n\003vid\030\002 \001(" +
+                        "\004\"M\n\014CloneRequest\022\020\n\010src_path\030\001 \001(\t\022\021\n\td" +
+                        "est_path\030\002 \001(\t\022\020\n\003vid\030\003 \001(\004H\000\210\001\001B\006\n\004_vid" +
+                        "\"-\n\rCloneResponse\022\017\n\007success\030\001 \001(\010\022\013\n\003vi" +
+                        "d\030\002 \001(\004\"!\n\021GetGarbageRequest\022\014\n\004path\030\001 \001" +
+                        "(\t\"%\n\022GetGarbageResponse\022\017\n\007garbage\030\001 \003(" +
+                        "\014\"#\n\023ClearGarbageRequest\022\014\n\004pids\030\001 \003(\003\"\'" +
+                        "\n\024ClearGarbageResponse\022\017\n\007success\030\001 \001(\010\"" +
+                        "2\n\021DefineTypeRequest\022\035\n\010type_def\030\001 \001(\0132\013" +
+                        ".ObjTypeDef\"%\n\022DefineTypeResponse\022\017\n\007suc" +
+                        "cess\030\001 \001(\010\"\313\001\n\023ExecuteQueryRequest\022\021\n\tba" +
+                        "se_only\030\001 \001(\010\022\020\n\003vid\030\002 \001(\004H\001\210\001\001\022\023\n\006txn_i" +
+                        "d\030\003 \001(\004H\002\210\001\001\022\030\n\013return_type\030\004 \001(\rH\003\210\001\001\022\037" +
+                        "\n\nparse_tree\030\005 \001(\0132\t.PathExprH\000\022\023\n\tquery" +
+                        "_str\030\006 \001(\tH\000B\007\n\005queryB\006\n\004_vidB\t\n\007_txn_id" +
+                        "B\016\n\014_return_type\"x\n\024ExecuteQueryResponse" +
+                        "\022\020\n\010leaf_obj\030\001 \001(\010\022\021\n\tbase_only\030\002 \001(\010\022\013\n" +
+                        "\003vid\030\003 \001(\004\022\020\n\010obj_list\030\004 \001(\014\022\022\n\005abort\030\005 " +
+                        "\001(\010H\000\210\001\001B\010\n\006_abort\"X\n\rCommitRequest\022\016\n\006t" +
+                        "xn_id\030\001 \001(\004\022\031\n\twrite_set\030\002 \003(\0132\006.Write\022\022" +
+                        "\n\005abort\030\003 \001(\010H\000\210\001\001B\010\n\006_abort\"!\n\016CommitRe" +
+                        "sponse\022\017\n\007success\030\001 \001(\010\"=\n\020PreCommitRequ" +
+                        "est\022\016\n\006txn_id\030\001 \001(\004\022\031\n\twrite_set\030\002 \003(\0132\006" +
+                        ".Write\"$\n\021PreCommitResponse\022\017\n\007success\030\001" +
+                        " \001(\010\"#\n\017BulkLoadRequest\022\020\n\010obj_list\030\001 \003(" +
+                        "\014\"=\n\020BulkLoadResponse\022\017\n\007success\030\001 \001(\010\022\013" +
+                        "\n\003vid\030\002 \001(\004\022\013\n\003err\030\003 \003(\t*:\n\007TxnMode\022\026\n\022T" +
+                        "XN_MODE_READ_ONLY\020\000\022\027\n\023TXN_MODE_READ_WRI" +
+                        "TE\020\001*c\n\tWriteType\022\022\n\016WRITE_TYPE_ADD\020\000\022\025\n" +
+                        "\021WRITE_TYPE_REMOVE\020\001\022\024\n\020WRITE_TYPE_MERGE" +
+                        "\020\002\022\025\n\021WRITE_TYPE_UPDATE\020\003*\227\001\n\013ObjTypeNam" +
+                        "e\022\032\n\026OBJ_TYPE_NAME_DATABASE\020\000\022\027\n\023OBJ_TYP" +
+                        "E_NAME_TABLE\020\001\022\033\n\027OBJ_TYPE_NAME_PARTITIO" +
+                        "N\020\002\022\035\n\031OBJ_TYPE_NAME_FILE_OBJECT\020\003\022\027\n\023OB" +
+                        "J_TYPE_NAME_OTHER\020\004*\034\n\010Wildcard\022\020\n\014WILDC" +
+                        "ARD_ANY\020\000*\246\002\n\nExprOpType\022\025\n\021EXPR_OP_TYPE" +
+                        "_LESS\020\000\022\030\n\024EXPR_OP_TYPE_GREATER\020\001\022\027\n\023EXP" +
+                        "R_OP_TYPE_EQUALS\020\002\022\034\n\030EXPR_OP_TYPE_LESS_" +
+                        "EQUALS\020\003\022\037\n\033EXPR_OP_TYPE_GREATER_EQUALS\020" +
+                        "\004\022\033\n\027EXPR_OP_TYPE_NOT_EQUALS\020\005\022\025\n\021EXPR_O" +
+                        "P_TYPE_PLUS\020\006\022\026\n\022EXPR_OP_TYPE_MINUS\020\007\022\025\n" +
+                        "\021EXPR_OP_TYPE_MULT\020\010\022\024\n\020EXPR_OP_TYPE_DIV" +
+                        "\020\t\022\026\n\022EXPR_OP_TYPE_OTHER\020\n*U\n\014ExprBoolTy" +
+                        "pe\022\025\n\021EXPR_BOOL_TYPE_OR\020\000\022\026\n\022EXPR_BOOL_T" +
+                        "YPE_AND\020\001\022\026\n\022EXPR_BOOL_TYPE_NOT\020\002*\313\001\n\rEx" +
+                        "prConstType\022\032\n\026EXPR_CONST_TYPE_STRING\020\000\022" +
+                        "\027\n\023EXPR_CONST_TYPE_INT\020\001\022\030\n\024EXPR_CONST_T" +
+                        "YPE_LONG\020\002\022\032\n\026EXPR_CONST_TYPE_DOUBLE\020\003\022\033" +
+                        "\n\027EXPR_CONST_TYPE_BOOLEAN\020\004\022\030\n\024EXPR_CONS" +
+                        "T_TYPE_DATE\020\005\022\030\n\024EXPR_CONST_TYPE_NULL\020\0062" +
+                        "\223\004\n\013GRPCCatalog\022/\n\010StartTxn\022\020.StartTxnRe" +
+                        "quest\032\021.StartTxnResponse\022/\n\010Snapshot\022\020.S" +
+                        "napshotRequest\032\021.SnapshotResponse\022&\n\005Clo" +
+                        "ne\022\r.CloneRequest\032\016.CloneResponse\0225\n\nGet" +
+                        "Garbage\022\022.GetGarbageRequest\032\023.GetGarbage" +
+                        "Response\022;\n\014ClearGarbage\022\024.ClearGarbageR" +
+                        "equest\032\025.ClearGarbageResponse\0225\n\nDefineT" +
+                        "ype\022\022.DefineTypeRequest\032\023.DefineTypeResp" +
+                        "onse\022=\n\014ExecuteQuery\022\024.ExecuteQueryReque" +
+                        "st\032\025.ExecuteQueryResponse0\001\022)\n\006Commit\022\016." +
+                        "CommitRequest\032\017.CommitResponse\0222\n\tPreCom" +
+                        "mit\022\021.PreCommitRequest\032\022.PreCommitRespon" +
+                        "se\0221\n\010BulkLoad\022\020.BulkLoadRequest\032\021.BulkL" +
+                        "oadResponse(\001b\006proto3"
         };
         descriptor = com.google.protobuf.Descriptors.FileDescriptor
                 .internalBuildGeneratedFileFrom(descriptorData,
@@ -27362,7 +27315,7 @@ public final class Grpccatalog {
         internal_static_SnapshotRequest_fieldAccessorTable = new
                 com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
                 internal_static_SnapshotRequest_descriptor,
-                new java.lang.String[] { "Path", "Name", "Vid", "Vid", });
+                new java.lang.String[] { "Name", "Vid", "Override", "Vid", "Override", });
         internal_static_SnapshotResponse_descriptor =
                 getDescriptor().getMessageTypes().get(16);
         internal_static_SnapshotResponse_fieldAccessorTable = new
@@ -27374,13 +27327,13 @@ public final class Grpccatalog {
         internal_static_CloneRequest_fieldAccessorTable = new
                 com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
                 internal_static_CloneRequest_descriptor,
-                new java.lang.String[] { "SrcPath", "Vid", "Vid", });
+                new java.lang.String[] { "SrcPath", "DestPath", "Vid", "Vid", });
         internal_static_CloneResponse_descriptor =
                 getDescriptor().getMessageTypes().get(18);
         internal_static_CloneResponse_fieldAccessorTable = new
                 com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
                 internal_static_CloneResponse_descriptor,
-                new java.lang.String[] { "Success", "DestPath", "Vid", });
+                new java.lang.String[] { "Success", "Vid", });
         internal_static_GetGarbageRequest_descriptor =
                 getDescriptor().getMessageTypes().get(19);
         internal_static_GetGarbageRequest_fieldAccessorTable = new

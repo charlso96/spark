@@ -1,9 +1,5 @@
 syntax = "proto3";
 
-/*
- * package org.apache.spark.tree.grpc;
- */
-
 enum TxnMode {
     TXN_MODE_READ_ONLY = 0;
     TXN_MODE_READ_WRITE = 1;
@@ -155,7 +151,7 @@ message PathExpr {
 }
 
 /*
- * A predicate is either an expression or a wildcard.
+ * A predicate is either an expression, oid, or a wildcard.
  */
 message Predicate {
     oneof pred {
@@ -239,9 +235,9 @@ message StartTxnResponse {
  * snapshot. If vid is not specified, the latest version is used.
  */
 message SnapshotRequest {
-    string path = 1;
-    string name = 2;
-    optional uint64 vid = 3;
+    string name = 1;
+    optional uint64 vid = 2;
+    optional bool override = 3;
 }
 
 /*
@@ -259,6 +255,7 @@ message SnapshotResponse {
  */
 message CloneRequest {
     string src_path = 1;
+    string dest_path = 2;
     optional uint64 vid = 3;
 }
 
@@ -268,8 +265,7 @@ message CloneRequest {
  */
 message CloneResponse {
     bool success = 1;
-    string dest_path = 2;
-    uint64 vid = 3;
+    uint64 vid = 2;
 }
 
 /*
@@ -404,5 +400,4 @@ service GRPCCatalog {
     rpc PreCommit(PreCommitRequest) returns (PreCommitResponse);
     rpc BulkLoad(stream BulkLoadRequest) returns (BulkLoadResponse);
 }
-
 
