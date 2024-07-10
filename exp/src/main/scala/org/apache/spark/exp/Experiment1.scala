@@ -65,7 +65,7 @@ object Experiment1 {
     val treeAddress = expConfig.getOrElse("treeAddress", "localhost:9876")
 
     val expUtil = new ExperimentUtil(treeAddress)
-    val outputWriter = new FileWriter(new File(resultOutput))
+    val outputWriter = new FileWriter(new File(resultOutput),true)
     outputWriter.write("Tree,HMS,DeltaLake\n")
 
     for (i <- 0 until experimentIters) {

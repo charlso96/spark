@@ -50,7 +50,7 @@ import org.apache.spark.tree.grpc.Grpccatalog.TxnMode
 /**
  * List of config parameters:
  * seed: seed for the random number generator, each thread adds its rank before seeding its own
- * resultOutput: path of the output file to which result is appended
+ * summaryOutput: path of the output file to which result is appended
  * dryRunTime: Duration of dry run before the main experiment
  * experimentTime: Duration of the main experiment
  * numThreads: Number of threads that are executed
@@ -66,7 +66,8 @@ import org.apache.spark.tree.grpc.Grpccatalog.TxnMode
 object Experiment3 {
   val expConfig = scala.collection.mutable.Map.empty[String, String]
   expConfig.put("seed", "0")
-  expConfig.put("resultOutput", "/tmp/experiment3.txt")
+  expConfig.put("summaryOutput", "/tmp/summary.txt")
+  expConfig.put("latencyOutput", "/tmp/latency.txt")
   expConfig.put("dryRunTime", "00:00:20")
   expConfig.put("experimentTime", "00:00:60")
   expConfig.put("numThreads", "16")
@@ -94,7 +95,8 @@ object Experiment3 {
     }
 
     val seed = expConfig("seed").toInt
-    val resultOutput = expConfig("resultOutput")
+    val summaryOutput = expConfig("summaryOutput")
+    val latencyOutput = expConfig("latencyOutput")
     val dryRunTime = convertToMilliseconds(expConfig("dryRunTime"))
     val experimentTime = convertToMilliseconds(expConfig("experimentTime"))
     val numThreads = expConfig("numThreads").toInt
@@ -110,13 +112,19 @@ object Experiment3 {
     val execExperiment = new AtomicBoolean(false)
     val totalNumCommits = new AtomicLong(0)
     val totalNumAborts = new AtomicLong(0)
-    val totalLatencies = new AtomicLong(0)
-    val totalCommitLatencies = new AtomicLong(0)
+
+    // array of arrays for collecting latencies of txns executed by all threads
+    val totalCommitLatencies = ArrayBuffer[ArrayBuffer[Long]]()
+    val totalAbortLatencies = ArrayBuffer[ArrayBuffer[Long]]()
 
     for (i <- 0 until numThreads) {
       val contExpConfig = expConfig.toMap
+      val commitLatencies = ArrayBuffer[Long]()
+      val abortLatencies = ArrayBuffer[Long]()
+      totalCommitLatencies.append(commitLatencies)
+      totalAbortLatencies.append(abortLatencies)
       threads.append(new Thread(new threadOps(dataConfig, contExpConfig, seed + i, execDryRun,
-        execExperiment, totalNumCommits, totalNumAborts, totalLatencies, totalCommitLatencies)))
+        execExperiment, totalNumCommits, totalNumAborts, commitLatencies, abortLatencies)))
     }
 
     // execute the dry run
@@ -136,26 +144,39 @@ object Experiment3 {
       thread.join()
     }
 
+    val flatTotalCommitLatencies = totalCommitLatencies.flatten
+    val flatTotalAbortLatencies = totalAbortLatencies.flatten
+    val avgCommitLatency = if (flatTotalCommitLatencies.size > 0) {
+      flatTotalCommitLatencies.sum / flatTotalCommitLatencies.size
+    }
+    else {
+      0
+    }
+
     // print the results
-    val outputWriter = new FileWriter(new File(resultOutput), true)
-    outputWriter.write("dryRunTime: " + dryRunTime/1000 + " s\n")
-    outputWriter.write("experimentTime: " + experimentTime/1000 + " s\n")
-    outputWriter.write("numThreads: " + numThreads + "\n")
-    outputWriter.write("rwRatio: " + rwRatio + "\n")
-    outputWriter.write("dimSizeRange: " + dimSizeRange + "\n")
-    outputWriter.write("factSizeRange: " + factSizeRange + "\n")
-    outputWriter.write("tableDistExponent: " + tableDistExponent + "\n")
-    outputWriter.write("partitionDistExponent: " + partitionDistExponent + "\n")
-    outputWriter.write("partitionRange: " + partitionRange + "\n\n")
-    outputWriter.write("Number of Commits: " + totalNumCommits + "\n")
-    outputWriter.write("Number of Aborts: " + totalNumAborts + "\n")
-    outputWriter.write("Throughput: " + (totalNumCommits.get().toDouble * 1000) / experimentTime
-      + "\n")
-    outputWriter.write("Total Latency: " + totalLatencies.get() + " ns\n")
-    outputWriter.write("Total Latency: " + totalCommitLatencies.get() + " ns\n")
-    outputWriter.write("Average Latency: " + (totalLatencies.get().toDouble/
-      (1000000 * (totalNumCommits.get + totalNumAborts.get))) + "ms\n\n\n")
-    outputWriter.close()
+    val summaryWriter = new FileWriter(new File(summaryOutput), true)
+    summaryWriter.write("{\"rwRatio\":\"" + rwRatio + "\", ")
+    summaryWriter.write("\"numCommits\":" + totalNumCommits + ", ")
+    summaryWriter.write("\"numAborts\":" + totalNumAborts + ", ")
+    summaryWriter.write("\"throughput\":" +
+      (totalNumCommits.get().toDouble * 1000) / experimentTime + ", ")
+    summaryWriter.write("\"avgCommitLatency\":" + avgCommitLatency/1000000 + ", ")
+    summaryWriter.write("\"dryRunTime\":" + dryRunTime/1000 + ", ")
+    summaryWriter.write("\"experimentTime\":" + experimentTime/1000 + ", ")
+    summaryWriter.write("\"numThreads\":" + numThreads + ", ")
+    summaryWriter.write("\"dimSizeRange\":\"" + dimSizeRange + "\", ")
+    summaryWriter.write("\"factSizeRange\":\"" + factSizeRange + "\", ")
+    summaryWriter.write("\"tableDistExponent\":" + tableDistExponent + ", ")
+    summaryWriter.write("\"partitionDistExponent\":" + partitionDistExponent + ", ")
+    summaryWriter.write("\"partitionRange\":\"" + partitionRange + "\"}")
+    summaryWriter.write("\n")
+    summaryWriter.close()
+//
+    val latencyWriter = new FileWriter(new File(latencyOutput), true)
+    latencyWriter.write(flatTotalCommitLatencies.mkString("[", ",", "]"))
+    latencyWriter.write(flatTotalAbortLatencies.mkString("[", ",", "]"))
+    latencyWriter.write("\n")
+    latencyWriter.close()
 
   }
 
@@ -170,7 +191,7 @@ object Experiment3 {
   private class threadOps(dataConfig : JsonNode, expConfig : Map[String, String], seed : Long,
                           execDryRun : AtomicBoolean, execExperiment : AtomicBoolean,
                           totalNumCommits: AtomicLong, totalNumAborts: AtomicLong,
-                          totalLatencies: AtomicLong, totalCommitLatencies: AtomicLong)
+                          commitLatencies: ArrayBuffer[Long], abortLatencies: ArrayBuffer[Long])
       extends Runnable{
     private val rwRatio = expConfig("readWriteRatio").split(":").map(_.toInt)
     private val dimSizeRange = expConfig("dimSizeRange").split(":").map(_.toInt)
@@ -184,8 +205,6 @@ object Experiment3 {
     private val dbName = dataConfig.get("databaseName").asText()
     private val tablesJson = dataConfig.get("tables")
     private val totalRatio = rwRatio.sum
-    private var latencies: Long = 0
-    private var commitLatencies: Long = 0
     private var numCommits = 0
     private var numAborts = 0
 
@@ -216,8 +235,6 @@ object Experiment3 {
 
       totalNumCommits.addAndGet(numCommits)
       totalNumAborts.addAndGet(numAborts)
-      totalLatencies.addAndGet(latencies)
-      totalCommitLatencies.addAndGet(commitLatencies)
 
     }
 
@@ -288,9 +305,11 @@ object Experiment3 {
           }
           val endTime = Instant.now()
           if (!isDryRun) {
-            latencies += Duration.between(startTime, endTime).toNanos()
             if (success) {
-              commitLatencies += Duration.between(startTime, endTime).toNanos()
+              commitLatencies.append(Duration.between(startTime, endTime).toNanos())
+            }
+            else {
+              abortLatencies.append(Duration.between(startTime, endTime).toNanos())
             }
           }
         }
@@ -304,9 +323,11 @@ object Experiment3 {
           }
           val endTime = Instant.now()
           if (!isDryRun) {
-            latencies += Duration.between(startTime, endTime).toNanos()
             if (success) {
-              commitLatencies += Duration.between(startTime, endTime).toNanos()
+              commitLatencies.append(Duration.between(startTime, endTime).toNanos())
+            }
+            else {
+              abortLatencies.append(Duration.between(startTime, endTime).toNanos())
             }
           }
         }

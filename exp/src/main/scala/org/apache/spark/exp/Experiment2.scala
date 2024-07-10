@@ -82,7 +82,7 @@ object Experiment2 {
     val deltaTableName = deltaTablejson.get("name").asText()
 
     val expUtil = new ExperimentUtil(treeAddress)
-    val outputWriter = new FileWriter(new File(resultOutput))
+    val outputWriter = new FileWriter(new File(resultOutput), true)
     outputWriter.write("Tree,HMS,DeltaLake\n")
     val dataGen = new RandomDataGenerator()
     dataGen.reSeed(1)
