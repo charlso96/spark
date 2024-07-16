@@ -164,34 +164,34 @@
     <outputDirectory>target/scala-${scala.binary.version}/classes</outputDirectory>
     <testOutputDirectory>target/scala-${scala.binary.version}/test-classes</testOutputDirectory>
 <!--    Manually building proto and copying and pasting the classes for now because of package naming-->
-<!--    <extensions>-->
-<!--        <extension>-->
-<!--            <groupId>kr.motd.maven</groupId>-->
-<!--            <artifactId>os-maven-plugin</artifactId>-->
-<!--            <version>1.6.2</version>-->
-<!--        </extension>-->
-<!--    </extensions>-->
+    <extensions>
+        <extension>
+            <groupId>kr.motd.maven</groupId>
+            <artifactId>os-maven-plugin</artifactId>
+            <version>1.6.2</version>
+        </extension>
+    </extensions>
     <plugins>
         <!--    Manually building proto and copying and pasting the classes for now because of package naming-->
-<!--        <plugin>-->
-<!--            <groupId>org.xolstice.maven.plugins</groupId>-->
-<!--            <artifactId>protobuf-maven-plugin</artifactId>-->
-<!--            <version>0.6.1</version>-->
-<!--            <configuration>-->
-<!--                <protocArtifact>com.google.protobuf:protoc:${protobuf.version}:exe:${os.detected.classifier}</protocArtifact>-->
-<!--                <pluginId>grpc-java</pluginId>-->
-<!--                <pluginArtifact>io.grpc:protoc-gen-grpc-java:${io.grpc.version}:exe:${os.detected.classifier}</pluginArtifact>-->
-<!--                <protoSourceRoot>src/main/proto</protoSourceRoot>-->
-<!--            </configuration>-->
-<!--            <executions>-->
-<!--                <execution>-->
-<!--                    <goals>-->
-<!--                        <goal>compile</goal>-->
-<!--                        <goal>compile-custom</goal>-->
-<!--                    </goals>-->
-<!--                </execution>-->
-<!--            </executions>-->
-<!--        </plugin>-->
+        <plugin>
+            <groupId>org.xolstice.maven.plugins</groupId>
+            <artifactId>protobuf-maven-plugin</artifactId>
+            <version>0.6.1</version>
+            <configuration>
+                <protocArtifact>com.google.protobuf:protoc:${protobuf.version}:exe:${os.detected.classifier}</protocArtifact>
+                <pluginId>grpc-java</pluginId>
+                <pluginArtifact>io.grpc:protoc-gen-grpc-java:${io.grpc.version}:exe:${os.detected.classifier}</pluginArtifact>
+                <protoSourceRoot>src/main/proto</protoSourceRoot>
+            </configuration>
+            <executions>
+                <execution>
+                    <goals>
+                        <goal>compile</goal>
+                        <goal>compile-custom</goal>
+                    </goals>
+                </execution>
+            </executions>
+        </plugin>
         <!-- Shade all GRPC / Guava / Protobuf dependencies of this build -->
         <plugin>
             <groupId>org.apache.maven.plugins</groupId>

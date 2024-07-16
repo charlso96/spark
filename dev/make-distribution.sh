@@ -26,7 +26,7 @@
 
 set -o pipefail
 set -e
-set -x
+# set -x
 
 # Figure out where the Spark framework is installed
 SPARK_HOME="$(cd "`dirname "$0"`/.."; pwd)"
@@ -172,7 +172,7 @@ BUILD_COMMAND=("$MVN" clean package -DskipTests $@)
 echo -e "\nBuilding with..."
 echo -e "\$ ${BUILD_COMMAND[@]}\n"
 
-# "${BUILD_COMMAND[@]}"
+"${BUILD_COMMAND[@]}"
 
 # Make directories
 rm -rf "$DISTDIR"

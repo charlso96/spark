@@ -103,6 +103,11 @@
         <version>2.4.0</version>
     </dependency>
     <dependency>
+        <groupId>org.apache.iceberg</groupId>
+        <artifactId>iceberg-spark-runtime-3.4_2.12</artifactId>
+        <version>1.5.2</version>
+    </dependency>
+    <dependency>
         <groupId>org.apache.commons</groupId>
         <artifactId>commons-math3</artifactId>
     </dependency>
