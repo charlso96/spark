@@ -23,8 +23,10 @@ import java.net.URI
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable.HashMap
 import scala.collection.mutable.Map
+import scala.io.Source
 import scala.util.matching.Regex
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import org.apache.hadoop.fs.FileStatus
 import org.apache.hadoop.fs.Path
 import org.bson.BsonBinaryWriter
@@ -245,7 +247,8 @@ private[spark] class HMSClientExt(args: Seq[String], env:
     json_brace.replaceFirstIn(partition_json, partition_prefix) + "}"
   }
 
-  def getFileJson(table : CatalogTable, file : FileStatus, stats: Option[CatalogStatistics])
+  def getFileJson(table : CatalogTable, file : FileStatus, stats: Option[CatalogStatistics],
+                  file_sizes : scala.collection.mutable.Map[String, Long])
       : String = {
     val file_prefix = "{\"meta\": {\"paths\": [\"/" + table.identifier.database.get + "/" +
       table.identifier.table + getFileId(file) + "\"], \"obj_kind\": 2}, " +
@@ -265,7 +268,12 @@ private[spark] class HMSClientExt(args: Seq[String], env:
     appendBson(writer, fileObj.storage)
     writer.writeName("partitionValues")
     appendBson(writer, fileObj.partitionValues)
-    writer.writeInt64("size", fileObj.size)
+    if (file_sizes.contains(table.identifier.table)) {
+      writer.writeInt64("size", file_sizes(table.identifier.table))
+    }
+    else {
+      writer.writeInt64("size", fileObj.size)
+    }
     writer.writeInt64("modificationTime", fileObj.modificationTime)
     if (fileObj.stats.isDefined) {
       writer.writeName("stats")
@@ -281,7 +289,8 @@ private[spark] class HMSClientExt(args: Seq[String], env:
   }
 
   def getFileJson(table : CatalogTable, partition : CatalogTablePartition,
-                  file : FileStatus, stats: Option[CatalogStatistics]) : String = {
+                  file : FileStatus, stats: Option[CatalogStatistics],
+                  file_sizes : scala.collection.mutable.Map[String, Long]) : String = {
     val file_prefix = "{\"meta\": {\"paths\": [\"/" + table.identifier.database.get + "/" +
       table.identifier.table + getPartId(table, partition.spec) + getFileId(file) +
       "\"], \"obj_kind\": 2}, " +
@@ -301,7 +310,12 @@ private[spark] class HMSClientExt(args: Seq[String], env:
     appendBson(writer, fileObj.storage)
     writer.writeName("partitionValues")
     appendBson(writer, fileObj.partitionValues)
-    writer.writeInt64("size", fileObj.size)
+    if (file_sizes.contains(table.identifier.table)) {
+      writer.writeInt64("size", file_sizes(table.identifier.table))
+    }
+    else {
+      writer.writeInt64("size", fileObj.size)
+    }
     writer.writeInt64("modificationTime", fileObj.modificationTime)
     if (fileObj.stats.isDefined) {
       writer.writeName("stats")
@@ -415,6 +429,7 @@ private[spark] class HMSClientExt(args: Seq[String], env:
         case BooleanType => writer.writeBoolean("min", colStat.min.get.toBoolean)
         case FloatType => writer.writeDouble("min", colStat.min.get.toDouble)
         case DoubleType => writer.writeDouble("min", colStat.min.get.toDouble)
+        case DecimalType.Fixed(_, _) => writer.writeDouble("min", colStat.min.get.toDouble)
         case _ => writer.writeString("min", colStat.min.get)
       }
     }
@@ -427,6 +442,7 @@ private[spark] class HMSClientExt(args: Seq[String], env:
         case BooleanType => writer.writeBoolean("max", colStat.max.get.toBoolean)
         case FloatType => writer.writeDouble("max", colStat.max.get.toDouble)
         case DoubleType => writer.writeDouble("max", colStat.max.get.toDouble)
+        case DecimalType.Fixed(_, _) => writer.writeDouble("max", colStat.max.get.toDouble)
         case _ => writer.writeString("max", colStat.max.get)
       }
     }
@@ -493,12 +509,14 @@ private[spark] class HMSClientExt(args: Seq[String], env:
       if (delta.isDefined) {
         val min = {
           if (base.get.min.isDefined && delta.get.min.isDefined) {
-            if (attr.dataType.isInstanceOf[IntegralType]) {
-              Some(base.get.min.get.toInt.min(delta.get.min.get.toInt).toString)
-            }
-            // simple string comparison takes care of both string and dates
-            else {
-              Some(if (base.get.min.get < delta.get.min.get) base.get.min.get
+            attr.dataType match {
+              case _: IntegralType =>
+                Some(base.get.min.get.toInt.min(delta.get.min.get.toInt).toString)
+              case _: FractionalType =>
+                val min_val = base.get.min.get.toDouble.max(delta.get.min.get.toDouble)
+                Some(f"$min_val%.2f")
+              case _ =>
+                Some(if (base.get.min.get < delta.get.min.get) base.get.min.get
                 else delta.get.min.get)
             }
           }
@@ -508,12 +526,14 @@ private[spark] class HMSClientExt(args: Seq[String], env:
         }
         val max = {
           if (base.get.max.isDefined && delta.get.max.isDefined) {
-            if (attr.dataType.isInstanceOf[IntegralType]) {
-              Some(base.get.max.get.toInt.max(delta.get.max.get.toInt).toString)
-            }
-            // simple string comparison takes care of both string and dates
-            else {
-              Some(if (base.get.max.get > delta.get.max.get) base.get.max.get
+            attr.dataType match {
+              case _: IntegralType =>
+                Some(base.get.max.get.toInt.max(delta.get.max.get.toInt).toString)
+              case _: FractionalType =>
+                val max_val = base.get.max.get.toDouble.max(delta.get.max.get.toDouble)
+                Some(f"$max_val%.2f")
+              case _ =>
+                Some(if (base.get.max.get > delta.get.max.get) base.get.max.get
                 else delta.get.max.get)
             }
           }
@@ -562,21 +582,49 @@ private[spark] class HMSClientExt(args: Seq[String], env:
     val fs = partition_path.getFileSystem(hadoopConf)
     fs.listStatus(partition_path).toSeq
   }
-  // TODO: we only assume 1 row per file for now
-  def extractStats(table : CatalogTable, file : FileStatus): CatalogStatistics = {
+
+  def extractStats(table : CatalogTable, file : FileStatus,
+                   file_sizes : scala.collection.mutable.Map[String, Long],
+                   rows_per_files : scala.collection.mutable.Map[String, Long])
+    : CatalogStatistics = {
     val fs = file.getPath.getFileSystem(hadoopConf)
     val dataBuf: Array[Byte] = new Array[Byte](file.getLen.toInt)
     val ifstream = fs.open(file.getPath)
     ifstream.readFully(dataBuf)
     ifstream.close()
     val schema = table.schema
-    val record = dataBuf.map(_.toChar).mkString.replaceAll("[\n\r]", "").split(",")
-    val colStats = Map.empty[String, CatalogColumnStat]
-    record.indices.foreach{ i =>
-      colStats.put(schema(i).name, CatalogColumnStat(None, Some(record(i)), Some(record(i)),
-        Some(0), None, None, None, 1))
+    val records = dataBuf.map(_.toChar).mkString.split("\n")
+      .map(_.replaceAll("[\n\r]", "").split(","))
+
+    var final_stats = CatalogStatistics(0, Some(0),
+      scala.collection.immutable.Map.empty[String, CatalogColumnStat])
+    records.indices.foreach { i =>
+      val col_stats = Map.empty[String, CatalogColumnStat]
+      records(i).indices.foreach { j =>
+        col_stats.put(schema(j).name, CatalogColumnStat(None, Some(records(i)(j)),
+          Some(records(i)(j)), Some(0), None, None, None, 1))
+      }
+      // leave out the file size and number of rows for now
+      val cur_stats = CatalogStatistics(0, Some(0), col_stats.toMap)
+      final_stats = mergeStats(table, final_stats, cur_stats)
+
     }
-    CatalogStatistics(file.getLen, Some(1), colStats.toMap)
+
+    val file_size : Long = if (file_sizes.contains(table.identifier.table)) {
+      file_sizes(table.identifier.table)
+    }
+    else {
+      file.getLen
+    }
+    val rows_per_file : Long = if (rows_per_files.contains(table.identifier.table)) {
+      rows_per_files(table.identifier.table)
+    }
+    else {
+      2
+    }
+
+    CatalogStatistics(file_size, Some(rows_per_file), final_stats.colStats)
+
   }
 
   private def getPartId(table : CatalogTable, partitionSpec : CatalogTypes.TablePartitionSpec)
@@ -616,10 +664,28 @@ private[spark] class HMSClientExt(args: Seq[String], env:
 private[spark] object HMSExtractor extends Logging {
 
   def main(args: Array[String]): Unit = {
-
     val hms_ext = new HMSClientExt(args.toSeq)
     val db_name = args(0)
     val file_writer = new FileWriter(new File(args(1)))
+    val file_sizes = scala.collection.mutable.Map.empty[String, Long]
+    val rows_per_files = scala.collection.mutable.Map.empty[String, Long]
+
+    if (args.length >= 4 ) {
+      val scale_factor = args(3)
+      val jsonParser = new ObjectMapper
+      jsonParser.readTree(Source.fromFile(args(2)).mkString).get("tables").forEach{ table =>
+          val num_rows = table.get("scaling").get(scale_factor).asLong()
+          val partition_schema_size = table.get("partitionSchema").size()
+          val schema_size = table.get("schema").size()
+          val bytes_per_row = 4 * (partition_schema_size + schema_size)
+          val rows_per_file = math.min(num_rows, 100000000 / bytes_per_row)
+          // we assume number of files exceeds number of partitions
+          val file_size = bytes_per_row * rows_per_file
+          file_sizes.put(table.get("name").asText(), file_size)
+          rows_per_files.put(table.get("name").asText(), rows_per_file)
+        }
+    }
+
     // write the db object
     val db_json = hms_ext.getDBJson(db_name)
     file_writer.write(db_json + "\n")
@@ -635,9 +701,9 @@ private[spark] object HMSExtractor extends Logging {
         file_writer.write(table_json + "\n")
         val files = hms_ext.listFiles(table)
         files.foreach { file =>
-          val file_stats = hms_ext.extractStats(table, file)
+          val file_stats = hms_ext.extractStats(table, file, file_sizes, rows_per_files)
           tableStats = hms_ext.mergeStats(table, tableStats, file_stats)
-          val file_json = hms_ext.getFileJson(table, file, Some(file_stats))
+          val file_json = hms_ext.getFileJson(table, file, Some(file_stats), file_sizes)
           file_writer.write(file_json + "\n")
         }
       }
@@ -706,7 +772,7 @@ private[spark] object HMSExtractor extends Logging {
           var leafStats = CatalogStatistics(BigInt(0), Some(BigInt(0)),
               Map.empty[String, CatalogColumnStat].toMap)
           files.foreach { file =>
-            val file_stats = hms_ext.extractStats(table, file)
+            val file_stats = hms_ext.extractStats(table, file, file_sizes, rows_per_files)
             cur_part_stats.indices.foreach { i =>
               cur_part_stats(i) = hms_ext.mergeStats(table, cur_part_stats(i), file_stats)
 
@@ -714,7 +780,8 @@ private[spark] object HMSExtractor extends Logging {
             tableStats = hms_ext.mergeStats(table, tableStats, file_stats)
             leafStats = hms_ext.mergeStats(table, leafStats, file_stats)
 
-            val file_json = hms_ext.getFileJson(table, partition, file, Some(file_stats))
+            val file_json = hms_ext.getFileJson(table, partition, file, Some(file_stats),
+              file_sizes)
             file_writer.write(file_json + "\n")
           }
           // merge partition values into table statistics
