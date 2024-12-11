@@ -69,6 +69,12 @@ enum ExprConstType {
     EXPR_CONST_TYPE_NULL = 6;
 }
 
+
+enum BufCompression {
+    BUF_NO_COMPRESSION = 0;
+    BUF_SNAPPY_COMPRESSION = 1;
+}
+
 /*
  * a field has a name and the corresponding value, if absent, is
  * considered NULL
@@ -338,6 +344,7 @@ message ExecuteQueryResponse {
     uint64 vid = 3;
     bytes obj_list = 4;
     optional bool abort = 5;
+    BufCompression compression = 6;
 }
 
 /*
@@ -400,4 +407,3 @@ service GRPCCatalog {
     rpc PreCommit(PreCommitRequest) returns (PreCommitResponse);
     rpc BulkLoad(stream BulkLoadRequest) returns (BulkLoadResponse);
 }
-

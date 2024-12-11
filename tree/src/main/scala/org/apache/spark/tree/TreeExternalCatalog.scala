@@ -213,6 +213,7 @@ private[spark] object TreeSerde {
         case BooleanType => writer.writeBoolean("", colStat.min.get.toBoolean)
         case FloatType => writer.writeDouble("", colStat.min.get.toDouble)
         case DoubleType => writer.writeDouble("", colStat.min.get.toDouble)
+        case DecimalType() => writer.writeDouble("", colStat.min.get.toDouble)
         case _ => writer.writeString("", colStat.min.get)
       }
       writer.writeEndDocument()
@@ -228,6 +229,7 @@ private[spark] object TreeSerde {
         case BooleanType => writer.writeBoolean("", colStat.max.get.toBoolean)
         case FloatType => writer.writeDouble("", colStat.max.get.toDouble)
         case DoubleType => writer.writeDouble("", colStat.max.get.toDouble)
+        case DecimalType() => writer.writeDouble("", colStat.max.get.toDouble)
         case _ => writer.writeString("", colStat.max.get)
       }
       writer.writeEndDocument()
@@ -350,6 +352,7 @@ private[spark] object TreeSerde {
         case BooleanType => writer.writeBoolean("min", colStat.min.get.toBoolean)
         case FloatType => writer.writeDouble("min", colStat.min.get.toDouble)
         case DoubleType => writer.writeDouble("min", colStat.min.get.toDouble)
+        case DecimalType() => writer.writeDouble("min", colStat.min.get.toDouble)
         case _ => writer.writeString("min", colStat.min.get)
       }
     }
@@ -362,6 +365,7 @@ private[spark] object TreeSerde {
         case BooleanType => writer.writeBoolean("max", colStat.max.get.toBoolean)
         case FloatType => writer.writeDouble("max", colStat.max.get.toDouble)
         case DoubleType => writer.writeDouble("max", colStat.max.get.toDouble)
+        case DecimalType() => writer.writeDouble("min", colStat.min.get.toDouble)
         case _ => writer.writeString("max", colStat.max.get)
       }
     }
@@ -726,21 +730,6 @@ private[spark] object TreeSerde {
   private def emptyColStat(dataType : DataType) : CatalogColumnStat = {
     val min = {
       dataType match {
-        case ByteType => Some(Byte.MinValue.toString)
-        case ShortType => Some(Short.MinValue.toString)
-        case IntegerType => Some(Int.MinValue.toString)
-        case LongType => Some(Long.MinValue.toString)
-        case BooleanType => Some("false")
-        case FloatType => Some(Float.MinValue.toString)
-        case DoubleType => Some(Double.MinValue.toString)
-        case StringType => Some("")
-        case DateType => Some("0000-01-01")
-        // other types are currently not supported
-        case _ => None
-      }
-    }
-    val max = {
-      dataType match {
         case ByteType => Some(Byte.MaxValue.toString)
         case ShortType => Some(Short.MaxValue.toString)
         case IntegerType => Some(Int.MaxValue.toString)
@@ -750,9 +739,28 @@ private[spark] object TreeSerde {
         case DoubleType => Some(Double.MaxValue.toString)
         // This should work for most unicode
         // scalastyle:off
+        case VarcharType(length) => Some("\uFFFF")
         case StringType => Some("\uFFFF")
         // scalastyle:on
+        case DecimalType() => Some(Double.MaxValue.toString)
         case DateType => Some("9999-12-31")
+        // other types are currently not supported
+        case _ => None
+      }
+    }
+    val max = {
+      dataType match {
+        case ByteType => Some(Byte.MinValue.toString)
+        case ShortType => Some(Short.MinValue.toString)
+        case IntegerType => Some(Int.MinValue.toString)
+        case LongType => Some(Long.MinValue.toString)
+        case BooleanType => Some("false")
+        case FloatType => Some(Float.MinValue.toString)
+        case DoubleType => Some(Double.MinValue.toString)
+        case VarcharType(length) => Some("")
+        case StringType => Some("")
+        case DecimalType() => Some(Double.MinValue.toString)
+        case DateType => Some("0000-01-01")
         // other types are currently not supported
         case _ => None
       }
@@ -905,12 +913,50 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
 
   private def constructBinaryExpr(field: String, op : ExprOpType, const_str : String)
   : ExprNode = {
+    val nested_fields = field.split("\\.")
+    var expr_field_ref_builder = ExprFieldRef.newBuilder()
+    nested_fields.foreach { nested_field =>
+      expr_field_ref_builder = expr_field_ref_builder.addFieldRefs(nested_field)
+    }
+
     ExprNode.newBuilder()
       .setExprOp(ExprOp.newBuilder().setLeft(ExprNode.newBuilder()
-      .setExprFieldRef(ExprFieldRef.newBuilder().addFieldRefs(field)))
+      .setExprFieldRef(expr_field_ref_builder))
       .setOpType(op).setRight(ExprNode.newBuilder()
       .setExprConst(ExprConst.newBuilder().setConstType(ExprConstType.EXPR_CONST_TYPE_STRING)
       .setStringVal(const_str)))).build()
+  }
+
+
+  private def constructBinaryExpr(field: String, op : ExprOpType, const_literal : Literal)
+    : ExprNode = {
+    lazy val dateFormatter = DateFormatter()
+
+    val nested_fields = field.split("\\.")
+    var expr_field_ref_builder = ExprFieldRef.newBuilder()
+    nested_fields.foreach { nested_field =>
+      expr_field_ref_builder = expr_field_ref_builder.addFieldRefs(nested_field)
+    }
+
+    var const_builder = ExprConst.newBuilder()
+    const_literal match {
+      case Literal(value, _: IntegralType) =>
+        const_builder = const_builder.setConstType(ExprConstType.EXPR_CONST_TYPE_INT)
+          .setInt32Val(value.toString.toInt)
+      case Literal(value, _: StringType) =>
+        const_builder = const_builder.setConstType(ExprConstType.EXPR_CONST_TYPE_STRING)
+          .setStringVal(value.toString)
+      case Literal(value, _: DateType) =>
+        const_builder = const_builder.setConstType(ExprConstType.EXPR_CONST_TYPE_STRING)
+          .setStringVal(dateFormatter.format(value.asInstanceOf[Int]))
+      case _ => const_builder = const_builder
+    }
+
+    ExprNode.newBuilder()
+      .setExprOp(ExprOp.newBuilder().setLeft(ExprNode.newBuilder()
+          .setExprFieldRef(expr_field_ref_builder))
+        .setOpType(op).setRight(ExprNode.newBuilder()
+          .setExprConst(const_builder))).build()
   }
 
   private def quoteStringLiteral(str: String): String = {
@@ -923,7 +969,8 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     }
   }
 
-  private def convertFilters(table: CatalogTable, filters: Seq[Expression]): PathExpr.Builder = {
+  private def convertFilters(table: CatalogTable, filters: Seq[Expression],
+                             part_only : Boolean): PathExpr.Builder = {
     lazy val dateFormatter = DateFormatter()
 
     /**
@@ -1096,60 +1143,99 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
       }
     }
 
-    def convert(col_name: String, expr: Expression): Option[ExprNode] = expr match {
+    def convert(col_name: String, is_part_col : Boolean, expr: Expression):
+      Option[ExprNode] = expr match {
       case Not(In(_, list)) if hasNullLiteral(list) => None
 
       case Not(InSet(_, list)) if list.contains(null) => None
 
       case In(ExtractAttribute(attr), ConstructableLiterals(values)) =>
-        convert(col_name, convertInToOr(attr, values))
+        convert(col_name, is_part_col, convertInToOr(attr, values))
 
 
       case Not(In(ExtractAttribute(attr), ConstructableLiterals(values))) =>
-        convert(col_name, convertNotInToAnd(attr, values))
+        convert(col_name, is_part_col, convertNotInToAnd(attr, values))
 
       case InSet(ExtractAttribute(attr), ConstructableValues(values)) =>
-        convert(col_name, convertInToOr(attr, values))
+        convert(col_name, is_part_col, convertInToOr(attr, values))
 
       case Not(InSet(ExtractAttribute(attr), ConstructableValues(values))) =>
-        convert(col_name, convertNotInToAnd(attr, values))
+        convert(col_name, is_part_col, convertNotInToAnd(attr, values))
 
-      case op @ SpecialBinaryComparison(ExtractAttribute(attr), ExtractableLiteral(value)) =>
+      case op @ SpecialBinaryComparison(ExtractAttribute(attr), ConstructableLiteral(value)) =>
         if (attr.name == col_name) {
-          val expr_op_type = op match {
-            case EqualTo(_, _) => ExprOpType.EXPR_OP_TYPE_EQUALS
-            case EqualNullSafe(_, _) => ExprOpType.EXPR_OP_TYPE_EQUALS
-            case LessThan(_, _) => ExprOpType.EXPR_OP_TYPE_LESS
-            case LessThanOrEqual(_, _) => ExprOpType.EXPR_OP_TYPE_LESS_EQUALS
-            case GreaterThan(_, _) => ExprOpType.EXPR_OP_TYPE_GREATER
-            case GreaterThanOrEqual(_, _) => ExprOpType.EXPR_OP_TYPE_GREATER_EQUALS
+          if (is_part_col) {
+            val expr_op_type = op match {
+              case EqualTo(_, _) => ExprOpType.EXPR_OP_TYPE_EQUALS
+              case EqualNullSafe(_, _) => ExprOpType.EXPR_OP_TYPE_EQUALS
+              case LessThan(_, _) => ExprOpType.EXPR_OP_TYPE_LESS
+              case LessThanOrEqual(_, _) => ExprOpType.EXPR_OP_TYPE_LESS_EQUALS
+              case GreaterThan(_, _) => ExprOpType.EXPR_OP_TYPE_GREATER
+              case GreaterThanOrEqual(_, _) => ExprOpType.EXPR_OP_TYPE_GREATER_EQUALS
+            }
+            Some(constructBinaryExpr("obj_id", expr_op_type, value.value.toString))
           }
-          Some(constructBinaryExpr("obj_id", expr_op_type, value))
+          else {
+            op match {
+              case LessThan(_, _) =>
+                Some(constructBinaryExpr("stats.colStats." + col_name + ".min",
+                  ExprOpType.EXPR_OP_TYPE_LESS, value))
+              case LessThanOrEqual(_, _) =>
+                Some(constructBinaryExpr("stats.colStats." + col_name + ".min",
+                  ExprOpType.EXPR_OP_TYPE_LESS_EQUALS, value))
+              case GreaterThan(_, _) =>
+                Some(constructBinaryExpr("stats.colStats." + col_name + ".max",
+                  ExprOpType.EXPR_OP_TYPE_GREATER, value))
+              case GreaterThanOrEqual(_, _) =>
+                Some(constructBinaryExpr("stats.colStats." + col_name + ".max",
+                  ExprOpType.EXPR_OP_TYPE_GREATER_EQUALS, value))
+              case _ => None
+            }
+          }
         }
         else {
           None
         }
 
-      case op @ SpecialBinaryComparison(ExtractableLiteral(value), ExtractAttribute(attr)) =>
+      case op @ SpecialBinaryComparison(ConstructableLiteral(value), ExtractAttribute(attr)) =>
         // flip the operators as attribute always goes to the left in ExprNode
         if (attr.name == col_name) {
-          val expr_op_type = op match {
-            case EqualTo(_, _) => ExprOpType.EXPR_OP_TYPE_EQUALS
-            case EqualNullSafe(_, _) => ExprOpType.EXPR_OP_TYPE_EQUALS
-            case LessThan(_, _) => ExprOpType.EXPR_OP_TYPE_GREATER
-            case LessThanOrEqual(_, _) => ExprOpType.EXPR_OP_TYPE_GREATER_EQUALS
-            case GreaterThan(_, _) => ExprOpType.EXPR_OP_TYPE_LESS
-            case GreaterThanOrEqual(_, _) => ExprOpType.EXPR_OP_TYPE_LESS_EQUALS
+          if (is_part_col) {
+            val expr_op_type = op match {
+              case EqualTo(_, _) => ExprOpType.EXPR_OP_TYPE_EQUALS
+              case EqualNullSafe(_, _) => ExprOpType.EXPR_OP_TYPE_EQUALS
+              case LessThan(_, _) => ExprOpType.EXPR_OP_TYPE_GREATER
+              case LessThanOrEqual(_, _) => ExprOpType.EXPR_OP_TYPE_GREATER_EQUALS
+              case GreaterThan(_, _) => ExprOpType.EXPR_OP_TYPE_LESS
+              case GreaterThanOrEqual(_, _) => ExprOpType.EXPR_OP_TYPE_LESS_EQUALS
+            }
+            Some(constructBinaryExpr("obj_id", expr_op_type, value.value.toString))
           }
-          Some(constructBinaryExpr("obj_id", expr_op_type, value))
+          else {
+            op match {
+              case LessThan(_, _) =>
+                Some(constructBinaryExpr("stats.colStats." + col_name + ".max",
+                  ExprOpType.EXPR_OP_TYPE_GREATER, value))
+              case LessThanOrEqual(_, _) =>
+                Some(constructBinaryExpr("stats.colStats." + col_name + ".max",
+                  ExprOpType.EXPR_OP_TYPE_GREATER_EQUALS, value))
+              case GreaterThan(_, _) =>
+                Some(constructBinaryExpr("stats.colStats." + col_name + ".min",
+                  ExprOpType.EXPR_OP_TYPE_LESS, value))
+              case GreaterThanOrEqual(_, _) =>
+                Some(constructBinaryExpr("stats.colStats." + col_name + ".min",
+                  ExprOpType.EXPR_OP_TYPE_LESS_EQUALS, value))
+              case _ => None
+            }
+          }
         }
         else {
           None
         }
 
       case And(expr1, expr2) =>
-        val converted_expr1 = convert(col_name, expr1)
-        val converted_expr2 = convert(col_name, expr2)
+        val converted_expr1 = convert(col_name, is_part_col, expr1)
+        val converted_expr2 = convert(col_name, is_part_col, expr2)
         if (converted_expr1.isEmpty && converted_expr2.isEmpty) {
           None
         } else {
@@ -1165,16 +1251,16 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
         }
 
       case Or(expr1, expr2) =>
-        val converted_expr1 = convert(col_name, expr1)
-        val converted_expr2 = convert(col_name, expr2)
+        val converted_expr1 = convert(col_name, is_part_col, expr1)
+        val converted_expr2 = convert(col_name, is_part_col, expr2)
         if (converted_expr1.isEmpty && converted_expr2.isEmpty) {
           None
         } else {
           val or_builder = ExprBool.newBuilder().setOpType(ExprBoolType.EXPR_BOOL_TYPE_OR)
-          if (!converted_expr1.isEmpty) {
+          if (converted_expr1.isDefined) {
             or_builder.addArgs(converted_expr1.get)
           }
-          if (!converted_expr2.isEmpty) {
+          if (converted_expr2.isDefined) {
             or_builder.addArgs(converted_expr2.get)
           }
 
@@ -1201,7 +1287,7 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     val partTypeExpr = constructBinaryExpr("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "partition")
     table.partitionColumnNames.foreach{ col_name =>
       val andBuilder = ExprBool.newBuilder().setOpType(ExprBoolType.EXPR_BOOL_TYPE_AND)
-      filters.map(convert(col_name, _)).filter(!_.isEmpty)
+      filters.map(convert(col_name, true, _)).filter(_.isDefined)
         .foreach(expr => andBuilder.addArgs(expr.get))
       if (andBuilder.getArgsCount == 0) {
         pathExprBuilder.addPreds(Predicate.newBuilder().setExprNode(partTypeExpr))
@@ -1209,6 +1295,21 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
       else {
         pathExprBuilder.addPreds(Predicate.newBuilder()
             .setExprNode(ExprNode.newBuilder().setExprBool(andBuilder.addArgs(partTypeExpr))))
+      }
+    }
+    // if the filters are also applied to files and not just partitions
+    if (!part_only) {
+      val andBuilder = ExprBool.newBuilder().setOpType(ExprBoolType.EXPR_BOOL_TYPE_AND)
+      table.dataSchema.fieldNames.foreach { col_name =>
+        filters.map(convert(col_name, false, _)).filter(_.isDefined)
+          .foreach(expr => andBuilder.addArgs(expr.get))
+      }
+      if (andBuilder.getArgsCount == 0) {
+        pathExprBuilder.addPreds(Predicate.newBuilder().setWildcard(Wildcard.WILDCARD_ANY))
+      }
+      else {
+        pathExprBuilder.addPreds(Predicate.newBuilder()
+          .setExprNode(ExprNode.newBuilder().setExprBool(andBuilder)))
       }
     }
 
@@ -1504,7 +1605,7 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
   def listPartitionsByFilter(table: CatalogTable, predicates: Seq[Expression],
                              txn : Option[TreeTxn]):
       Seq[CatalogTablePartition] = {
-    val pathExprBuilder = convertFilters(table, predicates)
+    val pathExprBuilder = convertFilters(table, predicates, true)
     val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(
       pathExprBuilder.build()).setBaseOnly(true).setReturnType(1)
     setTxnId(queryRequest, txn)
@@ -1565,9 +1666,7 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
 
   def listFilesByFilter(table: CatalogTable, predicates: Seq[Expression],
                         txn : Option[TreeTxn]): Seq[FileStatus] = {
-    val pathExprBuilder = convertFilters(table, predicates)
-    pathExprBuilder.addPreds(Predicate.newBuilder().
-      setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY))
+    val pathExprBuilder = convertFilters(table, predicates, false)
 
     val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(
       pathExprBuilder.build()).setBaseOnly(true).setReturnType(2)
@@ -1579,9 +1678,7 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
 
   def listFilesWithStatsByFilter(table: CatalogTable, predicates: Seq[Expression],
                         txn : Option[TreeTxn]): Seq[CatalogTableFile] = {
-    val pathExprBuilder = convertFilters(table, predicates)
-    pathExprBuilder.addPreds(Predicate.newBuilder().
-      setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY))
+    val pathExprBuilder = convertFilters(table, predicates, false)
 
     val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(
       pathExprBuilder.build()).setBaseOnly(true).setReturnType(2)

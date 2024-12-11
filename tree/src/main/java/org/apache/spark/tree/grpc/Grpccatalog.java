@@ -966,6 +966,114 @@ public final class Grpccatalog {
         // @@protoc_insertion_point(enum_scope:ExprConstType)
     }
 
+    /**
+     * Protobuf enum {@code BufCompression}
+     */
+    public enum BufCompression
+            implements com.google.protobuf.ProtocolMessageEnum {
+        /**
+         * <code>BUF_NO_COMPRESSION = 0;</code>
+         */
+        BUF_NO_COMPRESSION(0),
+        /**
+         * <code>BUF_SNAPPY_COMPRESSION = 1;</code>
+         */
+        BUF_SNAPPY_COMPRESSION(1),
+        UNRECOGNIZED(-1),
+        ;
+
+        /**
+         * <code>BUF_NO_COMPRESSION = 0;</code>
+         */
+        public static final int BUF_NO_COMPRESSION_VALUE = 0;
+        /**
+         * <code>BUF_SNAPPY_COMPRESSION = 1;</code>
+         */
+        public static final int BUF_SNAPPY_COMPRESSION_VALUE = 1;
+
+
+        public final int getNumber() {
+            if (this == UNRECOGNIZED) {
+                throw new java.lang.IllegalArgumentException(
+                        "Can't get the number of an unknown enum value.");
+            }
+            return value;
+        }
+
+        /**
+         * @param value The numeric wire value of the corresponding enum entry.
+         * @return The enum associated with the given numeric wire value.
+         * @deprecated Use {@link #forNumber(int)} instead.
+         */
+        @java.lang.Deprecated
+        public static BufCompression valueOf(int value) {
+            return forNumber(value);
+        }
+
+        /**
+         * @param value The numeric wire value of the corresponding enum entry.
+         * @return The enum associated with the given numeric wire value.
+         */
+        public static BufCompression forNumber(int value) {
+            switch (value) {
+                case 0: return BUF_NO_COMPRESSION;
+                case 1: return BUF_SNAPPY_COMPRESSION;
+                default: return null;
+            }
+        }
+
+        public static com.google.protobuf.Internal.EnumLiteMap<BufCompression>
+        internalGetValueMap() {
+            return internalValueMap;
+        }
+        private static final com.google.protobuf.Internal.EnumLiteMap<
+                BufCompression> internalValueMap =
+                new com.google.protobuf.Internal.EnumLiteMap<BufCompression>() {
+                    public BufCompression findValueByNumber(int number) {
+                        return BufCompression.forNumber(number);
+                    }
+                };
+
+        public final com.google.protobuf.Descriptors.EnumValueDescriptor
+        getValueDescriptor() {
+            if (this == UNRECOGNIZED) {
+                throw new java.lang.IllegalStateException(
+                        "Can't get the descriptor of an unrecognized enum value.");
+            }
+            return getDescriptor().getValues().get(ordinal());
+        }
+        public final com.google.protobuf.Descriptors.EnumDescriptor
+        getDescriptorForType() {
+            return getDescriptor();
+        }
+        public static final com.google.protobuf.Descriptors.EnumDescriptor
+        getDescriptor() {
+            return Grpccatalog.getDescriptor().getEnumTypes().get(7);
+        }
+
+        private static final BufCompression[] VALUES = values();
+
+        public static BufCompression valueOf(
+                com.google.protobuf.Descriptors.EnumValueDescriptor desc) {
+            if (desc.getType() != getDescriptor()) {
+                throw new java.lang.IllegalArgumentException(
+                        "EnumValueDescriptor is not for this type.");
+            }
+            if (desc.getIndex() == -1) {
+                return UNRECOGNIZED;
+            }
+            return VALUES[desc.getIndex()];
+        }
+
+        private final int value;
+
+        private BufCompression(int value) {
+            this.value = value;
+        }
+
+        // @@protoc_insertion_point(enum_scope:BufCompression)
+    }
+
     public interface FieldOrBuilder extends
             // @@protoc_insertion_point(interface_extends:Field)
             com.google.protobuf.MessageOrBuilder {
@@ -21995,6 +22103,17 @@ public final class Grpccatalog {
          * @return The abort.
          */
         boolean getAbort();
+
+        /**
+         * <code>.BufCompression compression = 6;</code>
+         * @return The enum numeric value on the wire for compression.
+         */
+        int getCompressionValue();
+        /**
+         * <code>.BufCompression compression = 6;</code>
+         * @return The compression.
+         */
+        Grpccatalog.BufCompression getCompression();
     }
     /**
      * <pre>
@@ -22015,6 +22134,7 @@ public final class Grpccatalog {
         }
         private ExecuteQueryResponse() {
             objList_ = com.google.protobuf.ByteString.EMPTY;
+            compression_ = 0;
         }
 
         @java.lang.Override
@@ -22106,6 +22226,24 @@ public final class Grpccatalog {
             return abort_;
         }
 
+        public static final int COMPRESSION_FIELD_NUMBER = 6;
+        private int compression_ = 0;
+        /**
+         * <code>.BufCompression compression = 6;</code>
+         * @return The enum numeric value on the wire for compression.
+         */
+        @java.lang.Override public int getCompressionValue() {
+            return compression_;
+        }
+        /**
+         * <code>.BufCompression compression = 6;</code>
+         * @return The compression.
+         */
+        @java.lang.Override public Grpccatalog.BufCompression getCompression() {
+            Grpccatalog.BufCompression result = Grpccatalog.BufCompression.forNumber(compression_);
+            return result == null ? Grpccatalog.BufCompression.UNRECOGNIZED : result;
+        }
+
         private byte memoizedIsInitialized = -1;
         @java.lang.Override
         public final boolean isInitialized() {
@@ -22134,6 +22272,9 @@ public final class Grpccatalog {
             }
             if (((bitField0_ & 0x00000001) != 0)) {
                 output.writeBool(5, abort_);
+            }
+            if (compression_ != Grpccatalog.BufCompression.BUF_NO_COMPRESSION.getNumber()) {
+                output.writeEnum(6, compression_);
             }
             getUnknownFields().writeTo(output);
         }
@@ -22164,6 +22305,10 @@ public final class Grpccatalog {
                 size += com.google.protobuf.CodedOutputStream
                         .computeBoolSize(5, abort_);
             }
+            if (compression_ != Grpccatalog.BufCompression.BUF_NO_COMPRESSION.getNumber()) {
+                size += com.google.protobuf.CodedOutputStream
+                        .computeEnumSize(6, compression_);
+            }
             size += getUnknownFields().getSerializedSize();
             memoizedSize = size;
             return size;
@@ -22192,6 +22337,7 @@ public final class Grpccatalog {
                 if (getAbort()
                         != other.getAbort()) return false;
             }
+            if (compression_ != other.compression_) return false;
             if (!getUnknownFields().equals(other.getUnknownFields())) return false;
             return true;
         }
@@ -22219,6 +22365,8 @@ public final class Grpccatalog {
                 hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
                         getAbort());
             }
+            hash = (37 * hash) + COMPRESSION_FIELD_NUMBER;
+            hash = (53 * hash) + compression_;
             hash = (29 * hash) + getUnknownFields().hashCode();
             memoizedHashCode = hash;
             return hash;
@@ -22358,6 +22506,7 @@ public final class Grpccatalog {
                 vid_ = 0L;
                 objList_ = com.google.protobuf.ByteString.EMPTY;
                 abort_ = false;
+                compression_ = 0;
                 return this;
             }
 
@@ -22407,6 +22556,9 @@ public final class Grpccatalog {
                 if (((from_bitField0_ & 0x00000010) != 0)) {
                     result.abort_ = abort_;
                     to_bitField0_ |= 0x00000001;
+                }
+                if (((from_bitField0_ & 0x00000020) != 0)) {
+                    result.compression_ = compression_;
                 }
                 result.bitField0_ |= to_bitField0_;
             }
@@ -22470,6 +22622,9 @@ public final class Grpccatalog {
                 if (other.hasAbort()) {
                     setAbort(other.getAbort());
                 }
+                if (other.compression_ != 0) {
+                    setCompressionValue(other.getCompressionValue());
+                }
                 this.mergeUnknownFields(other.getUnknownFields());
                 onChanged();
                 return this;
@@ -22521,6 +22676,11 @@ public final class Grpccatalog {
                                 bitField0_ |= 0x00000010;
                                 break;
                             } // case 40
+                            case 48: {
+                                compression_ = input.readEnum();
+                                bitField0_ |= 0x00000020;
+                                break;
+                            } // case 48
                             default: {
                                 if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                                     done = true; // was an endgroup tag
@@ -22702,6 +22862,59 @@ public final class Grpccatalog {
             public Builder clearAbort() {
                 bitField0_ = (bitField0_ & ~0x00000010);
                 abort_ = false;
+                onChanged();
+                return this;
+            }
+
+            private int compression_ = 0;
+            /**
+             * <code>.BufCompression compression = 6;</code>
+             * @return The enum numeric value on the wire for compression.
+             */
+            @java.lang.Override public int getCompressionValue() {
+                return compression_;
+            }
+            /**
+             * <code>.BufCompression compression = 6;</code>
+             * @param value The enum numeric value on the wire for compression to set.
+             * @return This builder for chaining.
+             */
+            public Builder setCompressionValue(int value) {
+                compression_ = value;
+                bitField0_ |= 0x00000020;
+                onChanged();
+                return this;
+            }
+            /**
+             * <code>.BufCompression compression = 6;</code>
+             * @return The compression.
+             */
+            @java.lang.Override
+            public Grpccatalog.BufCompression getCompression() {
+                Grpccatalog.BufCompression result = Grpccatalog.BufCompression.forNumber(compression_);
+                return result == null ? Grpccatalog.BufCompression.UNRECOGNIZED : result;
+            }
+            /**
+             * <code>.BufCompression compression = 6;</code>
+             * @param value The compression to set.
+             * @return This builder for chaining.
+             */
+            public Builder setCompression(Grpccatalog.BufCompression value) {
+                if (value == null) {
+                    throw new NullPointerException();
+                }
+                bitField0_ |= 0x00000020;
+                compression_ = value.getNumber();
+                onChanged();
+                return this;
+            }
+            /**
+             * <code>.BufCompression compression = 6;</code>
+             * @return This builder for chaining.
+             */
+            public Builder clearCompression() {
+                bitField0_ = (bitField0_ & ~0x00000020);
+                compression_ = 0;
                 onChanged();
                 return this;
             }
@@ -27166,55 +27379,58 @@ public final class Grpccatalog {
                         "d\030\003 \001(\004H\002\210\001\001\022\030\n\013return_type\030\004 \001(\rH\003\210\001\001\022\037" +
                         "\n\nparse_tree\030\005 \001(\0132\t.PathExprH\000\022\023\n\tquery" +
                         "_str\030\006 \001(\tH\000B\007\n\005queryB\006\n\004_vidB\t\n\007_txn_id" +
-                        "B\016\n\014_return_type\"x\n\024ExecuteQueryResponse" +
-                        "\022\020\n\010leaf_obj\030\001 \001(\010\022\021\n\tbase_only\030\002 \001(\010\022\013\n" +
-                        "\003vid\030\003 \001(\004\022\020\n\010obj_list\030\004 \001(\014\022\022\n\005abort\030\005 " +
-                        "\001(\010H\000\210\001\001B\010\n\006_abort\"X\n\rCommitRequest\022\016\n\006t" +
-                        "xn_id\030\001 \001(\004\022\031\n\twrite_set\030\002 \003(\0132\006.Write\022\022" +
-                        "\n\005abort\030\003 \001(\010H\000\210\001\001B\010\n\006_abort\"!\n\016CommitRe" +
-                        "sponse\022\017\n\007success\030\001 \001(\010\"=\n\020PreCommitRequ" +
-                        "est\022\016\n\006txn_id\030\001 \001(\004\022\031\n\twrite_set\030\002 \003(\0132\006" +
-                        ".Write\"$\n\021PreCommitResponse\022\017\n\007success\030\001" +
-                        " \001(\010\"#\n\017BulkLoadRequest\022\020\n\010obj_list\030\001 \003(" +
-                        "\014\"=\n\020BulkLoadResponse\022\017\n\007success\030\001 \001(\010\022\013" +
-                        "\n\003vid\030\002 \001(\004\022\013\n\003err\030\003 \003(\t*:\n\007TxnMode\022\026\n\022T" +
-                        "XN_MODE_READ_ONLY\020\000\022\027\n\023TXN_MODE_READ_WRI" +
-                        "TE\020\001*c\n\tWriteType\022\022\n\016WRITE_TYPE_ADD\020\000\022\025\n" +
-                        "\021WRITE_TYPE_REMOVE\020\001\022\024\n\020WRITE_TYPE_MERGE" +
-                        "\020\002\022\025\n\021WRITE_TYPE_UPDATE\020\003*\227\001\n\013ObjTypeNam" +
-                        "e\022\032\n\026OBJ_TYPE_NAME_DATABASE\020\000\022\027\n\023OBJ_TYP" +
-                        "E_NAME_TABLE\020\001\022\033\n\027OBJ_TYPE_NAME_PARTITIO" +
-                        "N\020\002\022\035\n\031OBJ_TYPE_NAME_FILE_OBJECT\020\003\022\027\n\023OB" +
-                        "J_TYPE_NAME_OTHER\020\004*\034\n\010Wildcard\022\020\n\014WILDC" +
-                        "ARD_ANY\020\000*\246\002\n\nExprOpType\022\025\n\021EXPR_OP_TYPE" +
-                        "_LESS\020\000\022\030\n\024EXPR_OP_TYPE_GREATER\020\001\022\027\n\023EXP" +
-                        "R_OP_TYPE_EQUALS\020\002\022\034\n\030EXPR_OP_TYPE_LESS_" +
-                        "EQUALS\020\003\022\037\n\033EXPR_OP_TYPE_GREATER_EQUALS\020" +
-                        "\004\022\033\n\027EXPR_OP_TYPE_NOT_EQUALS\020\005\022\025\n\021EXPR_O" +
-                        "P_TYPE_PLUS\020\006\022\026\n\022EXPR_OP_TYPE_MINUS\020\007\022\025\n" +
-                        "\021EXPR_OP_TYPE_MULT\020\010\022\024\n\020EXPR_OP_TYPE_DIV" +
-                        "\020\t\022\026\n\022EXPR_OP_TYPE_OTHER\020\n*U\n\014ExprBoolTy" +
-                        "pe\022\025\n\021EXPR_BOOL_TYPE_OR\020\000\022\026\n\022EXPR_BOOL_T" +
-                        "YPE_AND\020\001\022\026\n\022EXPR_BOOL_TYPE_NOT\020\002*\313\001\n\rEx" +
-                        "prConstType\022\032\n\026EXPR_CONST_TYPE_STRING\020\000\022" +
-                        "\027\n\023EXPR_CONST_TYPE_INT\020\001\022\030\n\024EXPR_CONST_T" +
-                        "YPE_LONG\020\002\022\032\n\026EXPR_CONST_TYPE_DOUBLE\020\003\022\033" +
-                        "\n\027EXPR_CONST_TYPE_BOOLEAN\020\004\022\030\n\024EXPR_CONS" +
-                        "T_TYPE_DATE\020\005\022\030\n\024EXPR_CONST_TYPE_NULL\020\0062" +
-                        "\223\004\n\013GRPCCatalog\022/\n\010StartTxn\022\020.StartTxnRe" +
-                        "quest\032\021.StartTxnResponse\022/\n\010Snapshot\022\020.S" +
-                        "napshotRequest\032\021.SnapshotResponse\022&\n\005Clo" +
-                        "ne\022\r.CloneRequest\032\016.CloneResponse\0225\n\nGet" +
-                        "Garbage\022\022.GetGarbageRequest\032\023.GetGarbage" +
-                        "Response\022;\n\014ClearGarbage\022\024.ClearGarbageR" +
-                        "equest\032\025.ClearGarbageResponse\0225\n\nDefineT" +
-                        "ype\022\022.DefineTypeRequest\032\023.DefineTypeResp" +
-                        "onse\022=\n\014ExecuteQuery\022\024.ExecuteQueryReque" +
-                        "st\032\025.ExecuteQueryResponse0\001\022)\n\006Commit\022\016." +
-                        "CommitRequest\032\017.CommitResponse\0222\n\tPreCom" +
-                        "mit\022\021.PreCommitRequest\032\022.PreCommitRespon" +
-                        "se\0221\n\010BulkLoad\022\020.BulkLoadRequest\032\021.BulkL" +
-                        "oadResponse(\001b\006proto3"
+                        "B\016\n\014_return_type\"\236\001\n\024ExecuteQueryRespons" +
+                        "e\022\020\n\010leaf_obj\030\001 \001(\010\022\021\n\tbase_only\030\002 \001(\010\022\013" +
+                        "\n\003vid\030\003 \001(\004\022\020\n\010obj_list\030\004 \001(\014\022\022\n\005abort\030\005" +
+                        " \001(\010H\000\210\001\001\022$\n\013compression\030\006 \001(\0162\017.BufComp" +
+                        "ressionB\010\n\006_abort\"X\n\rCommitRequest\022\016\n\006tx" +
+                        "n_id\030\001 \001(\004\022\031\n\twrite_set\030\002 \003(\0132\006.Write\022\022\n" +
+                        "\005abort\030\003 \001(\010H\000\210\001\001B\010\n\006_abort\"!\n\016CommitRes" +
+                        "ponse\022\017\n\007success\030\001 \001(\010\"=\n\020PreCommitReque" +
+                        "st\022\016\n\006txn_id\030\001 \001(\004\022\031\n\twrite_set\030\002 \003(\0132\006." +
+                        "Write\"$\n\021PreCommitResponse\022\017\n\007success\030\001 " +
+                        "\001(\010\"#\n\017BulkLoadRequest\022\020\n\010obj_list\030\001 \003(\014" +
+                        "\"=\n\020BulkLoadResponse\022\017\n\007success\030\001 \001(\010\022\013\n" +
+                        "\003vid\030\002 \001(\004\022\013\n\003err\030\003 \003(\t*:\n\007TxnMode\022\026\n\022TX" +
+                        "N_MODE_READ_ONLY\020\000\022\027\n\023TXN_MODE_READ_WRIT" +
+                        "E\020\001*c\n\tWriteType\022\022\n\016WRITE_TYPE_ADD\020\000\022\025\n\021" +
+                        "WRITE_TYPE_REMOVE\020\001\022\024\n\020WRITE_TYPE_MERGE\020" +
+                        "\002\022\025\n\021WRITE_TYPE_UPDATE\020\003*\227\001\n\013ObjTypeName" +
+                        "\022\032\n\026OBJ_TYPE_NAME_DATABASE\020\000\022\027\n\023OBJ_TYPE" +
+                        "_NAME_TABLE\020\001\022\033\n\027OBJ_TYPE_NAME_PARTITION" +
+                        "\020\002\022\035\n\031OBJ_TYPE_NAME_FILE_OBJECT\020\003\022\027\n\023OBJ" +
+                        "_TYPE_NAME_OTHER\020\004*\034\n\010Wildcard\022\020\n\014WILDCA" +
+                        "RD_ANY\020\000*\246\002\n\nExprOpType\022\025\n\021EXPR_OP_TYPE_" +
+                        "LESS\020\000\022\030\n\024EXPR_OP_TYPE_GREATER\020\001\022\027\n\023EXPR" +
+                        "_OP_TYPE_EQUALS\020\002\022\034\n\030EXPR_OP_TYPE_LESS_E" +
+                        "QUALS\020\003\022\037\n\033EXPR_OP_TYPE_GREATER_EQUALS\020\004" +
+                        "\022\033\n\027EXPR_OP_TYPE_NOT_EQUALS\020\005\022\025\n\021EXPR_OP" +
+                        "_TYPE_PLUS\020\006\022\026\n\022EXPR_OP_TYPE_MINUS\020\007\022\025\n\021" +
+                        "EXPR_OP_TYPE_MULT\020\010\022\024\n\020EXPR_OP_TYPE_DIV\020" +
+                        "\t\022\026\n\022EXPR_OP_TYPE_OTHER\020\n*U\n\014ExprBoolTyp" +
+                        "e\022\025\n\021EXPR_BOOL_TYPE_OR\020\000\022\026\n\022EXPR_BOOL_TY" +
+                        "PE_AND\020\001\022\026\n\022EXPR_BOOL_TYPE_NOT\020\002*\313\001\n\rExp" +
+                        "rConstType\022\032\n\026EXPR_CONST_TYPE_STRING\020\000\022\027" +
+                        "\n\023EXPR_CONST_TYPE_INT\020\001\022\030\n\024EXPR_CONST_TY" +
+                        "PE_LONG\020\002\022\032\n\026EXPR_CONST_TYPE_DOUBLE\020\003\022\033\n" +
+                        "\027EXPR_CONST_TYPE_BOOLEAN\020\004\022\030\n\024EXPR_CONST" +
+                        "_TYPE_DATE\020\005\022\030\n\024EXPR_CONST_TYPE_NULL\020\006*D" +
+                        "\n\016BufCompression\022\026\n\022BUF_NO_COMPRESSION\020\000" +
+                        "\022\032\n\026BUF_SNAPPY_COMPRESSION\020\0012\223\004\n\013GRPCCat" +
+                        "alog\022/\n\010StartTxn\022\020.StartTxnRequest\032\021.Sta" +
+                        "rtTxnResponse\022/\n\010Snapshot\022\020.SnapshotRequ" +
+                        "est\032\021.SnapshotResponse\022&\n\005Clone\022\r.CloneR" +
+                        "equest\032\016.CloneResponse\0225\n\nGetGarbage\022\022.G" +
+                        "etGarbageRequest\032\023.GetGarbageResponse\022;\n" +
+                        "\014ClearGarbage\022\024.ClearGarbageRequest\032\025.Cl" +
+                        "earGarbageResponse\0225\n\nDefineType\022\022.Defin" +
+                        "eTypeRequest\032\023.DefineTypeResponse\022=\n\014Exe" +
+                        "cuteQuery\022\024.ExecuteQueryRequest\032\025.Execut" +
+                        "eQueryResponse0\001\022)\n\006Commit\022\016.CommitReque" +
+                        "st\032\017.CommitResponse\0222\n\tPreCommit\022\021.PreCo" +
+                        "mmitRequest\032\022.PreCommitResponse\0221\n\010BulkL" +
+                        "oad\022\020.BulkLoadRequest\032\021.BulkLoadResponse" +
+                        "(\001b\006proto3"
         };
         descriptor = com.google.protobuf.Descriptors.FileDescriptor
                 .internalBuildGeneratedFileFrom(descriptorData,
@@ -27381,7 +27597,7 @@ public final class Grpccatalog {
         internal_static_ExecuteQueryResponse_fieldAccessorTable = new
                 com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
                 internal_static_ExecuteQueryResponse_descriptor,
-                new java.lang.String[] { "LeafObj", "BaseOnly", "Vid", "ObjList", "Abort", "Abort", });
+                new java.lang.String[] { "LeafObj", "BaseOnly", "Vid", "ObjList", "Abort", "Compression", "Abort", });
         internal_static_CommitRequest_descriptor =
                 getDescriptor().getMessageTypes().get(27);
         internal_static_CommitRequest_fieldAccessorTable = new
