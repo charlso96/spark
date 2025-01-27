@@ -246,8 +246,6 @@ private[spark] object TreeSerde {
   }
 
 
-
-
   def getPartId(table : CatalogTable, partitionSpec : CatalogTypes.TablePartitionSpec): String = {
     var partId = ""
     table.partitionSchema.foreach { partitionColumn =>
@@ -365,7 +363,7 @@ private[spark] object TreeSerde {
         case BooleanType => writer.writeBoolean("max", colStat.max.get.toBoolean)
         case FloatType => writer.writeDouble("max", colStat.max.get.toDouble)
         case DoubleType => writer.writeDouble("max", colStat.max.get.toDouble)
-        case DecimalType() => writer.writeDouble("min", colStat.min.get.toDouble)
+        case DecimalType() => writer.writeDouble("max", colStat.max.get.toDouble)
         case _ => writer.writeString("max", colStat.max.get)
       }
     }
@@ -642,10 +640,10 @@ private[spark] object TreeSerde {
     val bsonType = bsonVal.getBsonType
     bsonType match {
       case BsonType.STRING => Some(bsonVal.asString().getValue)
-      case BsonType.INT32 => Some(bsonVal.asInt32().toString)
-      case BsonType.INT64 => Some(bsonVal.asInt64().toString)
-      case BsonType.BOOLEAN => Some(bsonVal.asBoolean().toString)
-      case BsonType.DOUBLE => Some(bsonVal.asDouble().toString)
+      case BsonType.INT32 => Some(bsonVal.asInt32().getValue.toString)
+      case BsonType.INT64 => Some(bsonVal.asInt64().getValue.toString)
+      case BsonType.BOOLEAN => Some(bsonVal.asBoolean().getValue.toString)
+      case BsonType.DOUBLE => Some(bsonVal.asDouble().getValue.toString)
       case _ => None
     }
   }
@@ -927,6 +925,10 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
       .setStringVal(const_str)))).build()
   }
 
+  private def constructBinaryPred(field: String, op : ExprOpType, const_literal : Literal)
+  : Predicate = {
+    Predicate.newBuilder().setExprNode(constructBinaryExpr(field, op, const_literal)).build()
+  }
 
   private def constructBinaryExpr(field: String, op : ExprOpType, const_literal : Literal)
     : ExprNode = {
@@ -1744,6 +1746,30 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     toCatalogTableFiles(queryResponses, txn)
   }
 
+  def listFilesToCompact(table : CatalogTable, threshold: Long, txn : Option[TreeTxn])
+    : Seq[CatalogTableFile] = {
+    val dbPred = constructDbPred(table.identifier.database.get)
+    val tablePred = constructTablePred(table.identifier.table)
+    val pathExprBuilder = PathExpr.newBuilder().addPreds(dbPred).addPreds(tablePred)
+
+    val partPred = constructBinaryPred("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "partition")
+    table.partitionColumnNames.foreach({ column_name =>
+      pathExprBuilder.addPreds(partPred)
+    })
+
+    val filePred = constructBinaryPred("size", ExprOpType.EXPR_OP_TYPE_LESS, Literal(threshold))
+    pathExprBuilder.addPreds(filePred)
+
+    val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(pathExprBuilder.build())
+      .setBaseOnly(true).setReturnType(2)
+
+    setTxnId(queryRequest, txn)
+
+    val queryResponses = catalogStub.executeQuery(queryRequest.build())
+    toCatalogTableFiles(queryResponses, txn)
+  }
+
+
   def listFiles(table : CatalogTable, partition : CatalogTablePartition,
                 txn : Option[TreeTxn]) : Seq[FileStatus] = {
     val dbPred = constructDbPred(table.identifier.database.get)
@@ -2016,4 +2042,36 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     }
   }
 
+  // add given files to the table, returns true if successful
+  def removeFiles(table : CatalogTable, files : Seq[CatalogTableFile],
+               txn : Option[TreeTxn] = None): Option[Boolean] = {
+    val newTxn = {
+      if (txn.isDefined) {
+        txn
+      }
+      else {
+        startTransaction(TxnMode.TXN_MODE_READ_WRITE)
+      }
+    }
+
+    val commitRequest = newTxn.get.commitRequest.get
+    val tablePartitionSchema = table.partitionSchema
+    files.foreach{ file =>
+      val objPath = "/" + table.identifier.database.get + "/" + table.identifier.table +
+        TreeSerde.getFileId(table, file)
+
+      commitRequest.addWriteSet(Write.newBuilder()
+        .setType(WriteType.WRITE_TYPE_REMOVE)
+        .setIsLeaf(true)
+        .setPathStr(objPath))
+    }
+
+    // if not part of the existing transaction, commit
+    if (txn.isEmpty) {
+      Some(commit(newTxn.get))
+    }
+    else {
+      None
+    }
+  }
 }

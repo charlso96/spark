@@ -31,6 +31,8 @@ import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable.HashMap
 import scala.collection.mutable.Map
 
+import org.apache.iceberg.spark.SparkCatalog
+
 import org.apache.spark.SparkConf
 import org.apache.spark.SparkContext
 import org.apache.spark.internal.Logging
@@ -91,7 +93,8 @@ private[spark] class ExperimentUtil(treeAddress: String = "localhost:9876") exte
   val tree = new TreeExternalCatalog(treeAddress)
   val delta = sparkSession.sessionState.catalogManager
     .catalog("spark_catalog").asInstanceOf[DelegatingCatalogExtension]
-
+  val iceberg = sparkSession.sessionState.catalogManager
+    .catalog("hive_prod").asInstanceOf[SparkCatalog]
 
   private def mergeDefaultSparkProperties(): Unit = {
     // Use common defaults file, if not specified by user

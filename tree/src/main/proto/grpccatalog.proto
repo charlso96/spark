@@ -5,6 +5,15 @@ enum TxnMode {
     TXN_MODE_READ_WRITE = 1;
 }
 
+enum LockMode {
+    LOCK_MODE_NL = 0;
+    LOCK_MODE_IS = 1;
+    LOCK_MODE_IX = 2;
+    LOCK_MODE_S = 3;
+    LOCK_MODE_SIX = 4;
+    LOCK_MODE_X = 5;
+}
+
 enum WriteType {
     WRITE_TYPE_ADD = 0;
     WRITE_TYPE_REMOVE = 1;
@@ -152,7 +161,8 @@ message Write {
  */
 message PathExpr {
     repeated Predicate preds = 1;
-    optional ExprNode optional_pred = 2;
+    repeated LockMode lock_modes = 2;
+    optional ExprNode optional_pred = 3;
 
 }
 

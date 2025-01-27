@@ -199,7 +199,7 @@ private[spark] abstract class IntegralType extends NumericType {
 }
 
 
-private[sql] object FractionalType {
+private[spark] object FractionalType {
   /**
    * Enables matching against FractionalType for expressions:
    * {{{
@@ -211,7 +211,7 @@ private[sql] object FractionalType {
 }
 
 
-private[sql] abstract class FractionalType extends NumericType {
+private[spark] abstract class FractionalType extends NumericType {
   private[sql] val fractional: Fractional[InternalType]
   private[sql] val asIntegral: Integral[InternalType]
 }
