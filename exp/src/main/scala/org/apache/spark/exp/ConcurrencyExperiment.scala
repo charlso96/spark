@@ -36,6 +36,7 @@ import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.execution.SparkSqlParser
 import org.apache.spark.sql.types.{DateType, FractionalType, IntegralType, StructField}
 import org.apache.spark.tree.TreeExternalCatalog
+import org.apache.spark.tree.grpc.Grpccatalog.LockMode
 import org.apache.spark.tree.grpc.Grpccatalog.TxnMode
 
 
@@ -390,14 +391,15 @@ object ConcurrencyExperiment {
       val target_table_name = table_generator.genOptimizeTable()
       val target_table_config = table_configs(target_table_name)
       // get the target fact table. Is part of read-write txn as schema etc. should not change.
-      val target_table = tree_cat.getTable(database_name, target_table_config.name, write_txn)
+      val target_table = tree_cat.getTable(database_name, target_table_config.name, write_txn,
+        Some(LockMode.LOCK_MODE_X))
       // get the list of files to compact. Use read txn to avoid unnecessary conflicts
       val old_files = tree_cat.listFilesToCompact(target_table, optimize_config.threshold.toLong,
         read_txn)
 
       val partition_groups = scala.collection.mutable.HashMap[CatalogTypes.TablePartitionSpec,
         ArrayBuffer[CatalogTableFile]]()
-
+      // categorize the older files to appropriate partition groups
       old_files.foreach { old_file =>
         val partition_group = partition_groups.get(old_file.partitionValues)
         if (partition_group.isDefined) {
@@ -440,8 +442,10 @@ object ConcurrencyExperiment {
         print(file.toString + "\n")
       }
 
-      tree_cat.removeFiles(target_table, merged_files, write_txn)
-      tree_cat.addFiles(target_table, new_files, write_txn)
+      if (write_txn.get.isOK()) {
+        tree_cat.removeFiles(target_table, merged_files, write_txn)
+        tree_cat.addFiles(target_table, new_files, write_txn)
+      }
 
       tree_cat.commit(write_txn.get)
     }
@@ -456,7 +460,8 @@ object ConcurrencyExperiment {
 
       val dest_fact_table_config = table_configs(dest_fact_table_name)
       // get the target fact table
-      val dest_fact_table = tree_cat.getTable(database_name, dest_fact_table_config.name, txn)
+      val dest_fact_table = tree_cat.getTable(database_name, dest_fact_table_config.name, txn,
+        Some(LockMode.LOCK_MODE_X))
       // column statistics
       val col_stats = scala.collection.mutable.Map.empty[String, CatalogColumnStat]
       dest_fact_table_config.schema.foreach { attr_config =>
@@ -476,7 +481,7 @@ object ConcurrencyExperiment {
             }
           }
 
-          if (dim_table_config.business_id.isDefined) {
+          if (dim_table_config.business_id.isDefined && txn.get.isOK()) {
             val filters = ArrayBuffer[Expression]()
             val min_id = skToId(16, min_sk)
             val max_id = skToId(16, max_sk)
@@ -484,15 +489,21 @@ object ConcurrencyExperiment {
               f"${dim_table_config.business_id.get.name} <= '$max_id'"
             filters.append(sqlParser.parseExpression(pred))
             // get the dimension table
-            val table = tree_cat.getTable(database_name, dim_table_config.name, txn)
+            val table = tree_cat.getTable(database_name, dim_table_config.name, txn,
+              Some(LockMode.LOCK_MODE_IS))
             // get the list of files from the dimension table
-            tree_cat.listFilesByFilter(table, filters, txn)
+            if (txn.get.isOK()) {
+              tree_cat.listFilesByFilter(table, filters, txn, Some(LockMode.LOCK_MODE_S))
+            }
           }
-          else {
+          else if (txn.get.isOK()) {
             // just get all the files of the dimension table
-            val table = tree_cat.getTable(database_name, dim_table_config.name, txn)
+            val table = tree_cat.getTable(database_name, dim_table_config.name, txn,
+              Some(LockMode.LOCK_MODE_IS))
             // get the list of files from the dimension table
-            tree_cat.listFiles(table, txn)
+            if (txn.get.isOK()) {
+              tree_cat.listFiles(table, txn, Some(LockMode.LOCK_MODE_S))
+            }
           }
 
           val col_stat = CatalogColumnStat(None, Some(min_sk.toString), Some(max_sk.toString),
@@ -585,172 +596,193 @@ object ConcurrencyExperiment {
       fact_table_files.append(CatalogTableFile(storage, immutable_dest_part_spec,
         file_stats.sizeInBytes.toLong, stats = Some(file_stats)))
       // if the fact table is partitioned, get the corresponding partition
-      if (dest_fact_table.partitionColumnNames.nonEmpty) {
-        val partition = tree_cat.getPartition(dest_fact_table, immutable_dest_part_spec, txn)
+      if (dest_fact_table.partitionColumnNames.nonEmpty && txn.get.isOK()) {
+        val partition = tree_cat.getPartition(dest_fact_table, immutable_dest_part_spec, txn,
+          Some(LockMode.LOCK_MODE_X))
       }
 
       // finally add the file to the chosen partition
-      tree_cat.addFiles(dest_fact_table, fact_table_files, txn)
+      if (txn.get.isOK()) {
+        tree_cat.addFiles(dest_fact_table, fact_table_files, txn)
+      }
 
       dest_dim_table_names.foreach { dest_dim_table_name =>
         val dest_dim_table_config = table_configs(dest_dim_table_name)
-        // get the target dim table
-        val dest_dim_table = tree_cat.getTable(database_name, dest_dim_table_config.name, txn)
-        // column statistics
-        val col_stats = scala.collection.mutable.Map.empty[String, CatalogColumnStat]
-        dest_dim_table_config.schema.foreach { attr_config =>
-          if (attr_config.key.isDefined) {
-            val dim_table_config = table_configs(attr_config.key.get)
-            val cardinality = dim_table_config.high_watermark.get.toInt
-            var min_sk = ThreadLocalRandom.current().nextInt(cardinality)
-            var max_sk = min_sk
+        if (txn.get.isOK()) {
+          // get the target dim table
+          val dest_dim_table = tree_cat.getTable(database_name, dest_dim_table_config.name, txn,
+            Some(LockMode.LOCK_MODE_X))
 
-            // increment the watermark only once, for the surrogate key
-            if (dest_dim_table_name == attr_config.key.get) {
-              if (attr_config.name.endsWith("_sk")) {
-                val num_new_dim_records = (insert_config.insert_ratio * dest_dim_table_config
-                  .num_rows).toLong
-                min_sk = dest_dim_table_config.high_watermark.getAndAdd(num_new_dim_records).toInt
-                max_sk = (min_sk + num_new_dim_records - 1).toInt
-              }
-            }
-            else {
-              for (i <- 0 until (insert_config.insert_ratio * dest_fact_table_config.num_rows / 10)
-                .toInt) {
-                val rand_sk = ThreadLocalRandom.current().nextInt(cardinality)
-                if (rand_sk < min_sk) {
-                  min_sk = rand_sk
+          if (txn.get.isOK()) {
+            // column statistics
+            val col_stats = scala.collection.mutable.Map.empty[String, CatalogColumnStat]
+            dest_dim_table_config.schema.foreach { attr_config =>
+              if (attr_config.key.isDefined) {
+                val dim_table_config = table_configs(attr_config.key.get)
+                val cardinality = dim_table_config.high_watermark.get.toInt
+                var min_sk = ThreadLocalRandom.current().nextInt(cardinality)
+                var max_sk = min_sk
+
+                // increment the watermark only once, for the surrogate key
+                if (dest_dim_table_name == attr_config.key.get) {
+                  if (attr_config.name.endsWith("_sk")) {
+                    val num_new_dim_records = (insert_config.insert_ratio * dest_dim_table_config
+                      .num_rows).toLong
+                    min_sk = dest_dim_table_config.high_watermark.getAndAdd(num_new_dim_records)
+                      .toInt
+                    max_sk = (min_sk + num_new_dim_records - 1).toInt
+                  }
                 }
-                if (rand_sk > max_sk) {
-                  max_sk = rand_sk
+                else {
+                  for (i <- 0 until (insert_config.insert_ratio * dest_fact_table_config
+                    .num_rows / 10).toInt) {
+                    val rand_sk = ThreadLocalRandom.current().nextInt(cardinality)
+                    if (rand_sk < min_sk) {
+                      min_sk = rand_sk
+                    }
+                    if (rand_sk > max_sk) {
+                      max_sk = rand_sk
+                    }
+                  }
                 }
-              }
-            }
 
-            if (attr_config.data_type == "DATE") {
-              min_sk = min_sk * dates.length / cardinality
-              max_sk = max_sk * dates.length / cardinality
-              val col_stat = CatalogColumnStat(None, Some(dates(min_sk)), Some(dates(max_sk)),
-                Some(BigInt(0)), None, None, None, 1)
-              col_stats.put(attr_config.name, col_stat)
-            }
-            else if (dim_table_config.business_id.isDefined) {
-              val filters = ArrayBuffer[Expression]()
-              val min_id = skToId(16, min_sk)
-              val max_id = skToId(16, max_sk)
-              val pred = f"${dim_table_config.business_id.get.name} >= '$min_id' and " +
-                f"${dim_table_config.business_id.get.name} <= '$max_id'"
-              filters.append(sqlParser.parseExpression(pred))
-
-              if (dest_dim_table_name == attr_config.key.get) {
-                // populate column statistics for both surrogate key and business id
-                if (attr_config.name.endsWith("_sk")) {
-                  // get the dimension table
-                  val table = tree_cat.getTable(database_name, dim_table_config.name, txn)
-                  // get the list of files from the dimension table
-                  tree_cat.listFilesByFilter(table, filters, txn)
-                  val col_stat = CatalogColumnStat(None, Some(min_sk.toString),
-                    Some(max_sk.toString), Some(BigInt(0)), None, None, None, 1)
-                  col_stats.put(attr_config.name, col_stat)
-                  val id_col_stat = CatalogColumnStat(None, Some(min_id), Some(max_id),
+                if (attr_config.data_type == "DATE") {
+                  min_sk = min_sk * dates.length / cardinality
+                  max_sk = max_sk * dates.length / cardinality
+                  val col_stat = CatalogColumnStat(None, Some(dates(min_sk)), Some(dates(max_sk)),
                     Some(BigInt(0)), None, None, None, 1)
-                  col_stats.put(attr_config.name.stripSuffix("_sk") + "_id", id_col_stat)
+                  col_stats.put(attr_config.name, col_stat)
+                }
+                else if (dim_table_config.business_id.isDefined) {
+                  val filters = ArrayBuffer[Expression]()
+                  val min_id = skToId(16, min_sk)
+                  val max_id = skToId(16, max_sk)
+                  val pred = f"${dim_table_config.business_id.get.name} >= '$min_id' and " +
+                    f"${dim_table_config.business_id.get.name} <= '$max_id'"
+                  filters.append(sqlParser.parseExpression(pred))
+
+                  if (dest_dim_table_name == attr_config.key.get) {
+                    // populate column statistics for both surrogate key and business id
+                    if (attr_config.name.endsWith("_sk") && txn.get.isOK()) {
+                      // get the dimension table
+                      val table = tree_cat.getTable(database_name, dim_table_config.name, txn,
+                        Some(LockMode.LOCK_MODE_IS))
+                      if (txn.get.isOK()) {
+                        // get the list of files from the dimension table
+                        tree_cat.listFilesByFilter(table, filters, txn, Some(LockMode.LOCK_MODE_S))
+                        val col_stat = CatalogColumnStat(None, Some(min_sk.toString),
+                          Some(max_sk.toString), Some(BigInt(0)), None, None, None, 1)
+                        col_stats.put(attr_config.name, col_stat)
+                        val id_col_stat = CatalogColumnStat(None, Some(min_id), Some(max_id),
+                          Some(BigInt(0)), None, None, None, 1)
+                        col_stats.put(attr_config.name.stripSuffix("_sk") + "_id", id_col_stat)
+                      }
+                    }
+                  }
+                  else if (txn.get.isOK()) {
+                    // get the dimension table
+                    val table = tree_cat.getTable(database_name, dim_table_config.name, txn,
+                      Some(LockMode.LOCK_MODE_IS))
+                    if (txn.get.isOK()) {
+                      // get the list of files from the dimension table
+                      tree_cat.listFilesByFilter(table, filters, txn, Some(LockMode.LOCK_MODE_S))
+                      val col_stat = CatalogColumnStat(None, Some(min_sk.toString),
+                        Some(max_sk.toString), Some(BigInt(0)), None, None, None, 1)
+                      col_stats.put(attr_config.name, col_stat)
+                    }
+                  }
+                }
+                else if (txn.get.isOK()) {
+                  val table = tree_cat.getTable(database_name, dim_table_config.name, txn,
+                    Some(LockMode.LOCK_MODE_IS))
+                  if (txn.get.isOK()) {
+                    // just get all the files of the dimension table
+                    tree_cat.listFiles(table, txn, Some(LockMode.LOCK_MODE_S))
+                    val col_stat = CatalogColumnStat(None, Some(min_sk.toString),
+                      Some(max_sk.toString), Some(BigInt(0)), None, None, None, 1)
+                    col_stats.put(attr_config.name, col_stat)
+                  }
                 }
               }
+              // for other attributes, generate random values and fill in the column statistics
               else {
-                // get the dimension table
-                val table = tree_cat.getTable(database_name, dim_table_config.name, txn)
-                // get the list of files from the dimension table
-                tree_cat.listFilesByFilter(table, filters, txn)
-                val col_stat = CatalogColumnStat(None, Some(min_sk.toString), Some(max_sk.toString),
+                var min = ""
+                var max = ""
+                // generate random min and max string/int
+                attr_config.data_type match {
+                  case "VARCHAR" =>
+                    min = genRandomVarChar(attr_config.cardinality.get)
+                    val temp = genRandomVarChar(attr_config.cardinality.get)
+                    if (temp < min) {
+                      max = min
+                      min = temp
+                    }
+                    else {
+                      max = temp
+                    }
+                  case "DATE" =>
+                    min = dates(ThreadLocalRandom.current().nextInt(dates.length))
+                    val temp = dates(ThreadLocalRandom.current().nextInt(dates.length))
+                    if (temp < min) {
+                      max = min
+                      min = temp
+                    }
+                    else {
+                      max = temp
+                    }
+                  case "DECIMAL" =>
+                    val min_decimal = genRandomDecimal(attr_config.cardinality.get)
+                    val temp_decimal = genRandomDecimal(attr_config.cardinality.get)
+                    if (temp_decimal < min_decimal) {
+                      max = min_decimal.toString
+                      min = temp_decimal.toString
+                    }
+                    else {
+                      min = min_decimal.toString
+                      max = temp_decimal.toString
+                    }
+                  case "INT" =>
+                    min = ThreadLocalRandom.current().nextInt(attr_config.cardinality.get.toInt)
+                      .toString
+                    val temp = ThreadLocalRandom.current().nextInt(attr_config.cardinality.get
+                        .toInt).toString
+                    if (temp < min) {
+                      max = min
+                      min = temp
+                    }
+                    else {
+                      max = temp
+                    }
+
+                }
+
+                val col_stat = CatalogColumnStat(None, Some(min), Some(max),
                   Some(BigInt(0)), None, None, None, 1)
                 col_stats.put(attr_config.name, col_stat)
+
               }
             }
-            else {
-              val table = tree_cat.getTable(database_name, dim_table_config.name, txn)
-              // just get all the files of the dimension table
-              tree_cat.listFiles(table, txn)
-              val col_stat = CatalogColumnStat(None, Some(min_sk.toString), Some(max_sk.toString),
-                Some(BigInt(0)), None, None, None, 1)
-              col_stats.put(attr_config.name, col_stat)
+            // Now, insert to dim table a single file with appropriate number of rows, file stats
+            // etc.
+            val row_count = (insert_config.insert_ratio * dest_dim_table_config.num_rows).toInt
+            val size_in_bytes = row_count * dest_dim_table_config.bytes_per_row
+            val file_stats = CatalogStatistics(size_in_bytes, Some(BigInt(row_count)),
+              col_stats.toMap)
+
+            val immutable_dest_part_spec = dest_part_spec.toMap
+            val dest_table_files = ArrayBuffer[CatalogTableFile]()
+            val file_path = dest_dim_table.location.getPath + "/" + UUID.randomUUID()
+            val storage = CatalogStorageFormat(Some(new URI(file_path)),
+              dest_dim_table.storage.inputFormat, dest_dim_table.storage.outputFormat,
+              dest_dim_table.storage.serde, false, dest_dim_table.properties)
+            dest_table_files.append(CatalogTableFile(storage, immutable_dest_part_spec,
+              file_stats.sizeInBytes.toLong, stats = Some(file_stats)))
+            if (txn.get.isOK()) {
+              // finally add batch of files to the dest dimension table
+              tree_cat.addFiles(dest_dim_table, dest_table_files, txn)
             }
           }
-          // for other attributes, generate random values and fill in the column statistics
-          else {
-            var min = ""
-            var max = ""
-            // generate random min and max string/int
-            attr_config.data_type match {
-              case "VARCHAR" =>
-                min = genRandomVarChar(attr_config.cardinality.get)
-                val temp = genRandomVarChar(attr_config.cardinality.get)
-                if (temp < min) {
-                  max = min
-                  min = temp
-                }
-                else {
-                  max = temp
-                }
-              case "DATE" =>
-                min = dates(ThreadLocalRandom.current().nextInt(dates.length))
-                val temp = dates(ThreadLocalRandom.current().nextInt(dates.length))
-                if (temp < min) {
-                  max = min
-                  min = temp
-                }
-                else {
-                  max = temp
-                }
-              case "DECIMAL" =>
-                val min_decimal = genRandomDecimal(attr_config.cardinality.get)
-                val temp_decimal = genRandomDecimal(attr_config.cardinality.get)
-                if (temp_decimal < min_decimal) {
-                  max = min_decimal.toString
-                  min = temp_decimal.toString
-                }
-                else {
-                  min = min_decimal.toString
-                  max = temp_decimal.toString
-                }
-              case "INT" =>
-                min = ThreadLocalRandom.current().nextInt(attr_config.cardinality.get.toInt)
-                  .toString
-                val temp = ThreadLocalRandom.current().nextInt(attr_config.cardinality.get.toInt)
-                  .toString
-                if (temp < min) {
-                  max = min
-                  min = temp
-                }
-                else {
-                  max = temp
-                }
-
-            }
-
-            val col_stat = CatalogColumnStat(None, Some(min), Some(max),
-              Some(BigInt(0)), None, None, None, 1)
-            col_stats.put(attr_config.name, col_stat)
-
-          }
-
         }
-        // Now, insert to dim table a single file with appropriate number of rows, file stats etc.
-        val row_count = (insert_config.insert_ratio * dest_dim_table_config.num_rows).toInt
-        val size_in_bytes = row_count * dest_dim_table_config.bytes_per_row
-        val file_stats = CatalogStatistics(size_in_bytes, Some(BigInt(row_count)), col_stats.toMap)
-
-        val immutable_dest_part_spec = dest_part_spec.toMap
-        val dest_table_files = ArrayBuffer[CatalogTableFile]()
-        val file_path = dest_dim_table.location.getPath + "/" + UUID.randomUUID()
-        val storage = CatalogStorageFormat(Some(new URI(file_path)),
-          dest_dim_table.storage.inputFormat, dest_dim_table.storage.outputFormat,
-          dest_dim_table.storage.serde, false, dest_dim_table.properties)
-        dest_table_files.append(CatalogTableFile(storage, immutable_dest_part_spec,
-          file_stats.sizeInBytes.toLong, stats = Some(file_stats)))
-        // finally add batch of files to the dest dimension table
-        tree_cat.addFiles(dest_dim_table, dest_table_files, txn)
-
       }
 
       tree_cat.commit(txn.get)

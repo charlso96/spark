@@ -44,6 +44,7 @@ import org.json4s.JsonAST.JObject
 import org.json4s.JsonAST.JString
 import org.json4s.NoTypeHints
 import org.json4s.jackson.Serialization
+import org.xerial.snappy.Snappy
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.TableIdentifier
@@ -1352,7 +1353,11 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     var lastResponse : Option[ExecuteQueryResponse] = None
     queryResponses.forEachRemaining(response => {
       lastResponse = Some(response)
-      val responseBuf = response.getObjList().toByteArray()
+      val responseBuf = response.getCompression() match {
+        case BufCompression.BUF_SNAPPY_COMPRESSION => Snappy.uncompress(
+          response.getObjList().toByteArray())
+        case _ => response.getObjList().toByteArray()
+      }
       val bufIter = new BufIterator(responseBuf)
       while (bufIter.valid()) {
         val partBson = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
@@ -1363,7 +1368,6 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     })
     if (txn.isDefined && lastResponse.isDefined && lastResponse.get.hasAbort) {
       txn.get.setAbort(lastResponse.get.getAbort)
-      commit(txn.get)
     }
     partitions
   }
@@ -1375,7 +1379,11 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     var lastResponse : Option[ExecuteQueryResponse] = None
     queryResponses.forEachRemaining(response => {
       lastResponse = Some(response)
-      val responseBuf = response.getObjList().toByteArray()
+      val responseBuf = response.getCompression() match {
+        case BufCompression.BUF_SNAPPY_COMPRESSION => Snappy.uncompress(
+          response.getObjList().toByteArray())
+        case _ => response.getObjList().toByteArray()
+      }
       val bufIter = new BufIterator(responseBuf)
       while (bufIter.valid()) {
         val fileBson = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
@@ -1386,7 +1394,6 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     })
     if (txn.isDefined && lastResponse.isDefined && lastResponse.get.hasAbort) {
       txn.get.setAbort(lastResponse.get.getAbort)
-      commit(txn.get)
     }
     files
   }
@@ -1398,8 +1405,14 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     var lastResponse : Option[ExecuteQueryResponse] = None
     queryResponses.forEachRemaining(response => {
       lastResponse = Some(response)
-      val responseBuf = response.getObjList().toByteArray()
+
+      val responseBuf = response.getCompression() match {
+        case BufCompression.BUF_SNAPPY_COMPRESSION => Snappy.uncompress(
+          response.getObjList().toByteArray())
+        case _ => response.getObjList().toByteArray()
+      }
       val bufIter = new BufIterator(responseBuf)
+
       while (bufIter.valid()) {
         val fileBson = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
           responseBuf.size - bufIter.dataIdx())
@@ -1409,7 +1422,6 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     })
     if (txn.isDefined && lastResponse.isDefined && lastResponse.get.hasAbort) {
       txn.get.setAbort(lastResponse.get.getAbort)
-      commit(txn.get)
     }
     files
   }
@@ -1467,10 +1479,13 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
       }
       if (txn.isDefined && lastResponse.hasAbort) {
         txn.get.setAbort(lastResponse.getAbort)
-        commit(txn.get)
       }
 
-      val responseBuf = firstResponse.getObjList().toByteArray()
+      val responseBuf = firstResponse.getCompression() match {
+        case BufCompression.BUF_SNAPPY_COMPRESSION => Snappy.uncompress(
+          firstResponse.getObjList().toByteArray())
+        case _ => firstResponse.getObjList().toByteArray()
+      }
       val bufIter = new BufIterator(responseBuf)
       if (bufIter.valid()) {
         val DBBson = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
@@ -1486,12 +1501,31 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     }
   }
 
-  def getTable(db: String, table: String, txn : Option[TreeTxn] = None): CatalogTable = {
+  // if lock modes are defined, there should be at least 3 lock modes starting from the root object
+  def getTable(db: String, table: String, txn : Option[TreeTxn] = None,
+               lock_mode : Option[LockMode] = None): CatalogTable = {
     val dbPred = constructDbPred(db)
     val tablePred = constructTablePred(table)
 
-    val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(PathExpr.newBuilder().
-        addPreds(dbPred).addPreds(tablePred).build()).setBaseOnly(true).setReturnType(1)
+    val path_expr = PathExpr.newBuilder().addPreds(dbPred).addPreds(tablePred)
+    if (lock_mode.isDefined) {
+      val intention_lock = lock_mode.getOrElse(LockMode.LOCK_MODE_NL) match {
+        case LockMode.LOCK_MODE_NL => LockMode.LOCK_MODE_NL
+        case LockMode.LOCK_MODE_IS => LockMode.LOCK_MODE_IS
+        case LockMode.LOCK_MODE_S => LockMode.LOCK_MODE_IS
+        case LockMode.LOCK_MODE_IX => LockMode.LOCK_MODE_IX
+        case LockMode.LOCK_MODE_SIX => LockMode.LOCK_MODE_IX
+        case LockMode.LOCK_MODE_X => LockMode.LOCK_MODE_IX
+        case _ => LockMode.LOCK_MODE_NL
+      }
+
+      path_expr.addLockModes(intention_lock).addLockModes(intention_lock)
+        .addLockModes(lock_mode.getOrElse(LockMode.LOCK_MODE_NL))
+    }
+
+    val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(path_expr.build())
+      .setBaseOnly(true).setReturnType(1)
+
     setTxnId(queryRequest, txn)
 
     val queryResponses = catalogStub.executeQuery(queryRequest.build())
@@ -1505,10 +1539,13 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
       if (txn.isDefined && lastResponse.hasAbort) {
         txn.get.setAbort(lastResponse.getAbort)
         // commit to deallocate resources on the server side
-        commit(txn.get)
       }
 
-      val responseBuf = firstResponse.getObjList().toByteArray()
+      val responseBuf = firstResponse.getCompression() match {
+        case BufCompression.BUF_SNAPPY_COMPRESSION => Snappy.uncompress(
+          firstResponse.getObjList().toByteArray())
+        case _ => firstResponse.getObjList().toByteArray()
+      }
       val bufIter = new BufIterator(responseBuf)
       if (bufIter.valid()) {
         val tableBson = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
@@ -1538,7 +1575,11 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     var lastResponse : Option[ExecuteQueryResponse] = None
     queryResponses.forEachRemaining { response =>
       lastResponse = Some(response)
-      val responseBuf = response.getObjList().toByteArray()
+      val responseBuf = response.getCompression() match {
+        case BufCompression.BUF_SNAPPY_COMPRESSION => Snappy.uncompress(
+          response.getObjList().toByteArray())
+        case _ => response.getObjList().toByteArray()
+      }
       val bufIter = new BufIterator(responseBuf)
       while (bufIter.valid()) {
         val table_bson = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
@@ -1550,7 +1591,6 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     }
     if (txn.isDefined && lastResponse.isDefined && lastResponse.get.hasAbort) {
       txn.get.setAbort(lastResponse.get.getAbort)
-      commit(txn.get)
     }
     tables
   }
@@ -1616,11 +1656,24 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     toCatalogTablePartitions(queryResponses, txn)
   }
 
-  def getPartition(table: CatalogTable, spec: Map[String, String], txn : Option[TreeTxn] = None):
+  def getPartition(table: CatalogTable, spec: Map[String, String], txn : Option[TreeTxn] = None,
+                   lock_mode : Option[LockMode] = None):
       Seq[CatalogTablePartition] = {
     val dbPred = constructDbPred(table.identifier.database.get)
     val tablePred = constructTablePred(table.identifier.table)
     val pathExprBuilder = PathExpr.newBuilder().addPreds(dbPred).addPreds(tablePred)
+
+    val intention_lock = lock_mode.getOrElse(LockMode.LOCK_MODE_NL) match {
+      case LockMode.LOCK_MODE_NL => LockMode.LOCK_MODE_NL
+      case LockMode.LOCK_MODE_IS => LockMode.LOCK_MODE_IS
+      case LockMode.LOCK_MODE_S => LockMode.LOCK_MODE_IS
+      case LockMode.LOCK_MODE_IX => LockMode.LOCK_MODE_IX
+      case LockMode.LOCK_MODE_SIX => LockMode.LOCK_MODE_IX
+      case LockMode.LOCK_MODE_X => LockMode.LOCK_MODE_IX
+      case _ => LockMode.LOCK_MODE_NL
+    }
+    pathExprBuilder.addLockModes(intention_lock)
+    pathExprBuilder.addLockModes(intention_lock)
 
     val partTypeExpr = constructBinaryExpr("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "partition")
     table.partitionSchema.foreach { partitionColumn =>
@@ -1634,6 +1687,13 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
       pathExprBuilder.addPreds(Predicate.newBuilder()
         .setExprNode(ExprNode.newBuilder().setExprBool(andBuilder)))
 
+      if (lock_mode.isDefined) {
+        pathExprBuilder.addLockModes(intention_lock)
+      }
+    }
+
+    if (lock_mode.isDefined) {
+      pathExprBuilder.addLockModes(lock_mode.getOrElse(LockMode.LOCK_MODE_NL))
     }
 
     val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(pathExprBuilder.build())
@@ -1645,10 +1705,13 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
   }
 
   def listFilesByFilter(db: String, table: String, predicates: Seq[Expression],
-                        txn : Option[TreeTxn]): Seq[FileStatus] = {
-    val tableObj = getTable(db, table, txn)
+                        txn : Option[TreeTxn]):
+                        Seq[FileStatus] = {
+
+    val tableObj = getTable(db, table, txn, Some(LockMode.LOCK_MODE_NL))
+
     if (tableObj != null) {
-      listFilesByFilter(tableObj, predicates, txn)
+      listFilesByFilter(tableObj, predicates, txn, Some(LockMode.LOCK_MODE_NL))
     }
     else {
       ArrayBuffer[FileStatus]()
@@ -1667,8 +1730,29 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
   }
 
   def listFilesByFilter(table: CatalogTable, predicates: Seq[Expression],
-                        txn : Option[TreeTxn]): Seq[FileStatus] = {
+                        txn : Option[TreeTxn], lock_mode : Option[LockMode] = None):
+                        Seq[FileStatus] = {
     val pathExprBuilder = convertFilters(table, predicates, false)
+
+    val intention_lock = lock_mode.getOrElse(LockMode.LOCK_MODE_NL) match {
+      case LockMode.LOCK_MODE_NL => LockMode.LOCK_MODE_NL
+      case LockMode.LOCK_MODE_IS => LockMode.LOCK_MODE_IS
+      case LockMode.LOCK_MODE_S => LockMode.LOCK_MODE_IS
+      case LockMode.LOCK_MODE_IX => LockMode.LOCK_MODE_IX
+      case LockMode.LOCK_MODE_SIX => LockMode.LOCK_MODE_IX
+      case LockMode.LOCK_MODE_X => LockMode.LOCK_MODE_IX
+      case _ => LockMode.LOCK_MODE_NL
+    }
+    pathExprBuilder.addLockModes(intention_lock)
+    pathExprBuilder.addLockModes(intention_lock)
+    pathExprBuilder.addLockModes(intention_lock)
+
+    table.partitionSchema.foreach { _ =>
+      pathExprBuilder.addLockModes(intention_lock)
+    }
+
+    // the actual file objects are implicitly locked for less overhead
+    pathExprBuilder.addLockModes(LockMode.LOCK_MODE_NL)
 
     val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(
       pathExprBuilder.build()).setBaseOnly(true).setReturnType(2)
@@ -1710,15 +1794,34 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     }
   }
 
-  def listFiles(table : CatalogTable, txn : Option[TreeTxn]) : Seq[FileStatus] = {
+  def listFiles(table : CatalogTable, txn : Option[TreeTxn],
+                lock_mode : Option[LockMode] = None) : Seq[FileStatus] = {
     val dbPred = constructDbPred(table.identifier.database.get)
     val tablePred = constructTablePred(table.identifier.table)
     val pathExprBuilder = PathExpr.newBuilder().addPreds(dbPred).addPreds(tablePred)
 
+    val intention_lock = lock_mode.getOrElse(LockMode.LOCK_MODE_NL) match {
+      case LockMode.LOCK_MODE_NL => LockMode.LOCK_MODE_NL
+      case LockMode.LOCK_MODE_IS => LockMode.LOCK_MODE_IS
+      case LockMode.LOCK_MODE_S => LockMode.LOCK_MODE_IS
+      case LockMode.LOCK_MODE_IX => LockMode.LOCK_MODE_IX
+      case LockMode.LOCK_MODE_SIX => LockMode.LOCK_MODE_IX
+      case LockMode.LOCK_MODE_X => LockMode.LOCK_MODE_IX
+      case _ => LockMode.LOCK_MODE_NL
+    }
+    pathExprBuilder.addLockModes(intention_lock)
+    pathExprBuilder.addLockModes(intention_lock)
+    pathExprBuilder.addLockModes(intention_lock)
+
     val partPred = constructBinaryPred("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "partition")
     table.partitionColumnNames.foreach({ column_name =>
       pathExprBuilder.addPreds(partPred)
+      pathExprBuilder.addLockModes(intention_lock)
     })
+
+    // the actual file objects are implicitly locked for less overhead
+    pathExprBuilder.addLockModes(LockMode.LOCK_MODE_NL)
+
     val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(pathExprBuilder.
       addPreds(Predicate.newBuilder().setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build()).
         build()).setBaseOnly(true).setReturnType(2)
@@ -1770,11 +1873,24 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
   }
 
 
-  def listFiles(table : CatalogTable, partition : CatalogTablePartition,
-                txn : Option[TreeTxn]) : Seq[FileStatus] = {
+  def listFilesInPartition(table : CatalogTable, partition : CatalogTablePartition,
+                txn : Option[TreeTxn], lock_mode : Option[LockMode] = None) : Seq[FileStatus] = {
     val dbPred = constructDbPred(table.identifier.database.get)
     val tablePred = constructTablePred(table.identifier.table)
     val pathExprBuilder = PathExpr.newBuilder().addPreds(dbPred).addPreds(tablePred)
+
+    val intention_lock = lock_mode.getOrElse(LockMode.LOCK_MODE_NL) match {
+      case LockMode.LOCK_MODE_NL => LockMode.LOCK_MODE_NL
+      case LockMode.LOCK_MODE_IS => LockMode.LOCK_MODE_IS
+      case LockMode.LOCK_MODE_S => LockMode.LOCK_MODE_IS
+      case LockMode.LOCK_MODE_IX => LockMode.LOCK_MODE_IX
+      case LockMode.LOCK_MODE_SIX => LockMode.LOCK_MODE_IX
+      case LockMode.LOCK_MODE_X => LockMode.LOCK_MODE_IX
+      case _ => LockMode.LOCK_MODE_NL
+    }
+    pathExprBuilder.addLockModes(intention_lock)
+    pathExprBuilder.addLockModes(intention_lock)
+    pathExprBuilder.addLockModes(intention_lock)
 
     val partTypeExpr = constructBinaryExpr("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "partition")
     val partTypePred = Predicate.newBuilder().setExprNode(partTypeExpr).build
@@ -1801,7 +1917,12 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
       else {
         pathExprBuilder.addPreds(partTypePred)
       }
+
+      pathExprBuilder.addLockModes(intention_lock)
     }
+
+    // the actual file objects are implicitly locked for less overhead
+    pathExprBuilder.addLockModes(LockMode.LOCK_MODE_NL)
 
     val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(pathExprBuilder.
         addPreds(Predicate.newBuilder().setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build()).
@@ -1900,7 +2021,6 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
         // if aborted, commit to deallocate resource on the server side
         if (lastResponse.get.hasAbort) {
           newTxn.get.setAbort(lastResponse.get.getAbort)
-          commit(newTxn.get)
           return Some(false)
         }
       }

@@ -122,6 +122,150 @@ public final class Grpccatalog {
     }
 
     /**
+     * Protobuf enum {@code LockMode}
+     */
+    public enum LockMode
+            implements com.google.protobuf.ProtocolMessageEnum {
+        /**
+         * <code>LOCK_MODE_NL = 0;</code>
+         */
+        LOCK_MODE_NL(0),
+        /**
+         * <code>LOCK_MODE_IS = 1;</code>
+         */
+        LOCK_MODE_IS(1),
+        /**
+         * <code>LOCK_MODE_IX = 2;</code>
+         */
+        LOCK_MODE_IX(2),
+        /**
+         * <code>LOCK_MODE_S = 3;</code>
+         */
+        LOCK_MODE_S(3),
+        /**
+         * <code>LOCK_MODE_SIX = 4;</code>
+         */
+        LOCK_MODE_SIX(4),
+        /**
+         * <code>LOCK_MODE_X = 5;</code>
+         */
+        LOCK_MODE_X(5),
+        UNRECOGNIZED(-1),
+        ;
+
+        /**
+         * <code>LOCK_MODE_NL = 0;</code>
+         */
+        public static final int LOCK_MODE_NL_VALUE = 0;
+        /**
+         * <code>LOCK_MODE_IS = 1;</code>
+         */
+        public static final int LOCK_MODE_IS_VALUE = 1;
+        /**
+         * <code>LOCK_MODE_IX = 2;</code>
+         */
+        public static final int LOCK_MODE_IX_VALUE = 2;
+        /**
+         * <code>LOCK_MODE_S = 3;</code>
+         */
+        public static final int LOCK_MODE_S_VALUE = 3;
+        /**
+         * <code>LOCK_MODE_SIX = 4;</code>
+         */
+        public static final int LOCK_MODE_SIX_VALUE = 4;
+        /**
+         * <code>LOCK_MODE_X = 5;</code>
+         */
+        public static final int LOCK_MODE_X_VALUE = 5;
+
+
+        public final int getNumber() {
+            if (this == UNRECOGNIZED) {
+                throw new java.lang.IllegalArgumentException(
+                        "Can't get the number of an unknown enum value.");
+            }
+            return value;
+        }
+
+        /**
+         * @param value The numeric wire value of the corresponding enum entry.
+         * @return The enum associated with the given numeric wire value.
+         * @deprecated Use {@link #forNumber(int)} instead.
+         */
+        @java.lang.Deprecated
+        public static LockMode valueOf(int value) {
+            return forNumber(value);
+        }
+
+        /**
+         * @param value The numeric wire value of the corresponding enum entry.
+         * @return The enum associated with the given numeric wire value.
+         */
+        public static LockMode forNumber(int value) {
+            switch (value) {
+                case 0: return LOCK_MODE_NL;
+                case 1: return LOCK_MODE_IS;
+                case 2: return LOCK_MODE_IX;
+                case 3: return LOCK_MODE_S;
+                case 4: return LOCK_MODE_SIX;
+                case 5: return LOCK_MODE_X;
+                default: return null;
+            }
+        }
+
+        public static com.google.protobuf.Internal.EnumLiteMap<LockMode>
+        internalGetValueMap() {
+            return internalValueMap;
+        }
+        private static final com.google.protobuf.Internal.EnumLiteMap<
+                LockMode> internalValueMap =
+                new com.google.protobuf.Internal.EnumLiteMap<LockMode>() {
+                    public LockMode findValueByNumber(int number) {
+                        return LockMode.forNumber(number);
+                    }
+                };
+
+        public final com.google.protobuf.Descriptors.EnumValueDescriptor
+        getValueDescriptor() {
+            if (this == UNRECOGNIZED) {
+                throw new java.lang.IllegalStateException(
+                        "Can't get the descriptor of an unrecognized enum value.");
+            }
+            return getDescriptor().getValues().get(ordinal());
+        }
+        public final com.google.protobuf.Descriptors.EnumDescriptor
+        getDescriptorForType() {
+            return getDescriptor();
+        }
+        public static final com.google.protobuf.Descriptors.EnumDescriptor
+        getDescriptor() {
+            return Grpccatalog.getDescriptor().getEnumTypes().get(1);
+        }
+
+        private static final LockMode[] VALUES = values();
+
+        public static LockMode valueOf(
+                com.google.protobuf.Descriptors.EnumValueDescriptor desc) {
+            if (desc.getType() != getDescriptor()) {
+                throw new java.lang.IllegalArgumentException(
+                        "EnumValueDescriptor is not for this type.");
+            }
+            if (desc.getIndex() == -1) {
+                return UNRECOGNIZED;
+            }
+            return VALUES[desc.getIndex()];
+        }
+
+        private final int value;
+
+        private LockMode(int value) {
+            this.value = value;
+        }
+
+        // @@protoc_insertion_point(enum_scope:LockMode)
+    }
+
+    /**
      * Protobuf enum {@code WriteType}
      */
     public enum WriteType
@@ -221,7 +365,7 @@ public final class Grpccatalog {
         }
         public static final com.google.protobuf.Descriptors.EnumDescriptor
         getDescriptor() {
-            return Grpccatalog.getDescriptor().getEnumTypes().get(1);
+            return Grpccatalog.getDescriptor().getEnumTypes().get(2);
         }
 
         private static final WriteType[] VALUES = values();
@@ -362,7 +506,7 @@ public final class Grpccatalog {
         }
         public static final com.google.protobuf.Descriptors.EnumDescriptor
         getDescriptor() {
-            return Grpccatalog.getDescriptor().getEnumTypes().get(2);
+            return Grpccatalog.getDescriptor().getEnumTypes().get(3);
         }
 
         private static final ObjTypeName[] VALUES = values();
@@ -469,7 +613,7 @@ public final class Grpccatalog {
         }
         public static final com.google.protobuf.Descriptors.EnumDescriptor
         getDescriptor() {
-            return Grpccatalog.getDescriptor().getEnumTypes().get(3);
+            return Grpccatalog.getDescriptor().getEnumTypes().get(4);
         }
 
         private static final Wildcard[] VALUES = values();
@@ -662,7 +806,7 @@ public final class Grpccatalog {
         }
         public static final com.google.protobuf.Descriptors.EnumDescriptor
         getDescriptor() {
-            return Grpccatalog.getDescriptor().getEnumTypes().get(4);
+            return Grpccatalog.getDescriptor().getEnumTypes().get(5);
         }
 
         private static final ExprOpType[] VALUES = values();
@@ -783,7 +927,7 @@ public final class Grpccatalog {
         }
         public static final com.google.protobuf.Descriptors.EnumDescriptor
         getDescriptor() {
-            return Grpccatalog.getDescriptor().getEnumTypes().get(5);
+            return Grpccatalog.getDescriptor().getEnumTypes().get(6);
         }
 
         private static final ExprBoolType[] VALUES = values();
@@ -940,7 +1084,7 @@ public final class Grpccatalog {
         }
         public static final com.google.protobuf.Descriptors.EnumDescriptor
         getDescriptor() {
-            return Grpccatalog.getDescriptor().getEnumTypes().get(6);
+            return Grpccatalog.getDescriptor().getEnumTypes().get(7);
         }
 
         private static final ExprConstType[] VALUES = values();
@@ -1048,7 +1192,7 @@ public final class Grpccatalog {
         }
         public static final com.google.protobuf.Descriptors.EnumDescriptor
         getDescriptor() {
-            return Grpccatalog.getDescriptor().getEnumTypes().get(7);
+            return Grpccatalog.getDescriptor().getEnumTypes().get(8);
         }
 
         private static final BufCompression[] VALUES = values();
@@ -6643,17 +6787,46 @@ public final class Grpccatalog {
                 int index);
 
         /**
-         * <code>optional .ExprNode optional_pred = 2;</code>
+         * <code>repeated .LockMode lock_modes = 2;</code>
+         * @return A list containing the lockModes.
+         */
+        java.util.List<Grpccatalog.LockMode> getLockModesList();
+        /**
+         * <code>repeated .LockMode lock_modes = 2;</code>
+         * @return The count of lockModes.
+         */
+        int getLockModesCount();
+        /**
+         * <code>repeated .LockMode lock_modes = 2;</code>
+         * @param index The index of the element to return.
+         * @return The lockModes at the given index.
+         */
+        Grpccatalog.LockMode getLockModes(int index);
+        /**
+         * <code>repeated .LockMode lock_modes = 2;</code>
+         * @return A list containing the enum numeric values on the wire for lockModes.
+         */
+        java.util.List<java.lang.Integer>
+        getLockModesValueList();
+        /**
+         * <code>repeated .LockMode lock_modes = 2;</code>
+         * @param index The index of the value to return.
+         * @return The enum numeric value on the wire of lockModes at the given index.
+         */
+        int getLockModesValue(int index);
+
+        /**
+         * <code>optional .ExprNode optional_pred = 3;</code>
          * @return Whether the optionalPred field is set.
          */
         boolean hasOptionalPred();
         /**
-         * <code>optional .ExprNode optional_pred = 2;</code>
+         * <code>optional .ExprNode optional_pred = 3;</code>
          * @return The optionalPred.
          */
         Grpccatalog.ExprNode getOptionalPred();
         /**
-         * <code>optional .ExprNode optional_pred = 2;</code>
+         * <code>optional .ExprNode optional_pred = 3;</code>
          */
         Grpccatalog.ExprNodeOrBuilder getOptionalPredOrBuilder();
     }
@@ -6678,6 +6851,7 @@ public final class Grpccatalog {
         }
         private PathExpr() {
             preds_ = java.util.Collections.emptyList();
+            lockModes_ = java.util.Collections.emptyList();
         }
 
         @java.lang.Override
@@ -6747,10 +6921,68 @@ public final class Grpccatalog {
             return preds_.get(index);
         }
 
-        public static final int OPTIONAL_PRED_FIELD_NUMBER = 2;
+        public static final int LOCK_MODES_FIELD_NUMBER = 2;
+        @SuppressWarnings("serial")
+        private java.util.List<java.lang.Integer> lockModes_;
+        private static final com.google.protobuf.Internal.ListAdapter.Converter<
+                java.lang.Integer, Grpccatalog.LockMode> lockModes_converter_ =
+                new com.google.protobuf.Internal.ListAdapter.Converter<
+                        java.lang.Integer, Grpccatalog.LockMode>() {
+                    public Grpccatalog.LockMode convert(java.lang.Integer from) {
+                        Grpccatalog.LockMode result = Grpccatalog.LockMode.forNumber(from);
+                        return result == null ? Grpccatalog.LockMode.UNRECOGNIZED : result;
+                    }
+                };
+        /**
+         * <code>repeated .LockMode lock_modes = 2;</code>
+         * @return A list containing the lockModes.
+         */
+        @java.lang.Override
+        public java.util.List<Grpccatalog.LockMode> getLockModesList() {
+            return new com.google.protobuf.Internal.ListAdapter<
+                    java.lang.Integer, Grpccatalog.LockMode>(lockModes_, lockModes_converter_);
+        }
+        /**
+         * <code>repeated .LockMode lock_modes = 2;</code>
+         * @return The count of lockModes.
+         */
+        @java.lang.Override
+        public int getLockModesCount() {
+            return lockModes_.size();
+        }
+        /**
+         * <code>repeated .LockMode lock_modes = 2;</code>
+         * @param index The index of the element to return.
+         * @return The lockModes at the given index.
+         */
+        @java.lang.Override
+        public Grpccatalog.LockMode getLockModes(int index) {
+            return lockModes_converter_.convert(lockModes_.get(index));
+        }
+        /**
+         * <code>repeated .LockMode lock_modes = 2;</code>
+         * @return A list containing the enum numeric values on the wire for lockModes.
+         */
+        @java.lang.Override
+        public java.util.List<java.lang.Integer>
+        getLockModesValueList() {
+            return lockModes_;
+        }
+        /**
+         * <code>repeated .LockMode lock_modes = 2;</code>
+         * @param index The index of the value to return.
+         * @return The enum numeric value on the wire of lockModes at the given index.
+         */
+        @java.lang.Override
+        public int getLockModesValue(int index) {
+            return lockModes_.get(index);
+        }
+        private int lockModesMemoizedSerializedSize;
+
+        public static final int OPTIONAL_PRED_FIELD_NUMBER = 3;
         private Grpccatalog.ExprNode optionalPred_;
         /**
-         * <code>optional .ExprNode optional_pred = 2;</code>
+         * <code>optional .ExprNode optional_pred = 3;</code>
          * @return Whether the optionalPred field is set.
          */
         @java.lang.Override
@@ -6758,7 +6990,7 @@ public final class Grpccatalog {
             return ((bitField0_ & 0x00000001) != 0);
         }
         /**
-         * <code>optional .ExprNode optional_pred = 2;</code>
+         * <code>optional .ExprNode optional_pred = 3;</code>
          * @return The optionalPred.
          */
         @java.lang.Override
@@ -6766,7 +6998,7 @@ public final class Grpccatalog {
             return optionalPred_ == null ? Grpccatalog.ExprNode.getDefaultInstance() : optionalPred_;
         }
         /**
-         * <code>optional .ExprNode optional_pred = 2;</code>
+         * <code>optional .ExprNode optional_pred = 3;</code>
          */
         @java.lang.Override
         public Grpccatalog.ExprNodeOrBuilder getOptionalPredOrBuilder() {
@@ -6787,11 +7019,19 @@ public final class Grpccatalog {
         @java.lang.Override
         public void writeTo(com.google.protobuf.CodedOutputStream output)
                 throws java.io.IOException {
+            getSerializedSize();
             for (int i = 0; i < preds_.size(); i++) {
                 output.writeMessage(1, preds_.get(i));
             }
+            if (getLockModesList().size() > 0) {
+                output.writeUInt32NoTag(18);
+                output.writeUInt32NoTag(lockModesMemoizedSerializedSize);
+            }
+            for (int i = 0; i < lockModes_.size(); i++) {
+                output.writeEnumNoTag(lockModes_.get(i));
+            }
             if (((bitField0_ & 0x00000001) != 0)) {
-                output.writeMessage(2, getOptionalPred());
+                output.writeMessage(3, getOptionalPred());
             }
             getUnknownFields().writeTo(output);
         }
@@ -6806,9 +7046,21 @@ public final class Grpccatalog {
                 size += com.google.protobuf.CodedOutputStream
                         .computeMessageSize(1, preds_.get(i));
             }
+            {
+                int dataSize = 0;
+                for (int i = 0; i < lockModes_.size(); i++) {
+                    dataSize += com.google.protobuf.CodedOutputStream
+                            .computeEnumSizeNoTag(lockModes_.get(i));
+                }
+                size += dataSize;
+                if (!getLockModesList().isEmpty()) {  size += 1;
+                    size += com.google.protobuf.CodedOutputStream
+                            .computeUInt32SizeNoTag(dataSize);
+                }lockModesMemoizedSerializedSize = dataSize;
+            }
             if (((bitField0_ & 0x00000001) != 0)) {
                 size += com.google.protobuf.CodedOutputStream
-                        .computeMessageSize(2, getOptionalPred());
+                        .computeMessageSize(3, getOptionalPred());
             }
             size += getUnknownFields().getSerializedSize();
             memoizedSize = size;
@@ -6827,6 +7079,7 @@ public final class Grpccatalog {
 
             if (!getPredsList()
                     .equals(other.getPredsList())) return false;
+            if (!lockModes_.equals(other.lockModes_)) return false;
             if (hasOptionalPred() != other.hasOptionalPred()) return false;
             if (hasOptionalPred()) {
                 if (!getOptionalPred()
@@ -6846,6 +7099,10 @@ public final class Grpccatalog {
             if (getPredsCount() > 0) {
                 hash = (37 * hash) + PREDS_FIELD_NUMBER;
                 hash = (53 * hash) + getPredsList().hashCode();
+            }
+            if (getLockModesCount() > 0) {
+                hash = (37 * hash) + LOCK_MODES_FIELD_NUMBER;
+                hash = (53 * hash) + lockModes_.hashCode();
             }
             if (hasOptionalPred()) {
                 hash = (37 * hash) + OPTIONAL_PRED_FIELD_NUMBER;
@@ -7001,6 +7258,8 @@ public final class Grpccatalog {
                     predsBuilder_.clear();
                 }
                 bitField0_ = (bitField0_ & ~0x00000001);
+                lockModes_ = java.util.Collections.emptyList();
+                bitField0_ = (bitField0_ & ~0x00000002);
                 optionalPred_ = null;
                 if (optionalPredBuilder_ != null) {
                     optionalPredBuilder_.dispose();
@@ -7048,12 +7307,17 @@ public final class Grpccatalog {
                 } else {
                     result.preds_ = predsBuilder_.build();
                 }
+                if (((bitField0_ & 0x00000002) != 0)) {
+                    lockModes_ = java.util.Collections.unmodifiableList(lockModes_);
+                    bitField0_ = (bitField0_ & ~0x00000002);
+                }
+                result.lockModes_ = lockModes_;
             }
 
             private void buildPartial0(Grpccatalog.PathExpr result) {
                 int from_bitField0_ = bitField0_;
                 int to_bitField0_ = 0;
-                if (((from_bitField0_ & 0x00000002) != 0)) {
+                if (((from_bitField0_ & 0x00000004) != 0)) {
                     result.optionalPred_ = optionalPredBuilder_ == null
                             ? optionalPred_
                             : optionalPredBuilder_.build();
@@ -7132,6 +7396,16 @@ public final class Grpccatalog {
                         }
                     }
                 }
+                if (!other.lockModes_.isEmpty()) {
+                    if (lockModes_.isEmpty()) {
+                        lockModes_ = other.lockModes_;
+                        bitField0_ = (bitField0_ & ~0x00000002);
+                    } else {
+                        ensureLockModesIsMutable();
+                        lockModes_.addAll(other.lockModes_);
+                    }
+                    onChanged();
+                }
                 if (other.hasOptionalPred()) {
                     mergeOptionalPred(other.getOptionalPred());
                 }
@@ -7174,13 +7448,30 @@ public final class Grpccatalog {
                                 }
                                 break;
                             } // case 10
+                            case 16: {
+                                int tmpRaw = input.readEnum();
+                                ensureLockModesIsMutable();
+                                lockModes_.add(tmpRaw);
+                                break;
+                            } // case 16
                             case 18: {
+                                int length = input.readRawVarint32();
+                                int oldLimit = input.pushLimit(length);
+                                while(input.getBytesUntilLimit() > 0) {
+                                    int tmpRaw = input.readEnum();
+                                    ensureLockModesIsMutable();
+                                    lockModes_.add(tmpRaw);
+                                }
+                                input.popLimit(oldLimit);
+                                break;
+                            } // case 18
+                            case 26: {
                                 input.readMessage(
                                         getOptionalPredFieldBuilder().getBuilder(),
                                         extensionRegistry);
-                                bitField0_ |= 0x00000002;
+                                bitField0_ |= 0x00000004;
                                 break;
-                            } // case 18
+                            } // case 26
                             default: {
                                 if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                                     done = true; // was an endgroup tag
@@ -7438,18 +7729,158 @@ public final class Grpccatalog {
                 return predsBuilder_;
             }
 
+            private java.util.List<java.lang.Integer> lockModes_ =
+                    java.util.Collections.emptyList();
+            private void ensureLockModesIsMutable() {
+                if (!((bitField0_ & 0x00000002) != 0)) {
+                    lockModes_ = new java.util.ArrayList<java.lang.Integer>(lockModes_);
+                    bitField0_ |= 0x00000002;
+                }
+            }
+            /**
+             * <code>repeated .LockMode lock_modes = 2;</code>
+             * @return A list containing the lockModes.
+             */
+            public java.util.List<Grpccatalog.LockMode> getLockModesList() {
+                return new com.google.protobuf.Internal.ListAdapter<
+                        java.lang.Integer, Grpccatalog.LockMode>(lockModes_, lockModes_converter_);
+            }
+            /**
+             * <code>repeated .LockMode lock_modes = 2;</code>
+             * @return The count of lockModes.
+             */
+            public int getLockModesCount() {
+                return lockModes_.size();
+            }
+            /**
+             * <code>repeated .LockMode lock_modes = 2;</code>
+             * @param index The index of the element to return.
+             * @return The lockModes at the given index.
+             */
+            public Grpccatalog.LockMode getLockModes(int index) {
+                return lockModes_converter_.convert(lockModes_.get(index));
+            }
+            /**
+             * <code>repeated .LockMode lock_modes = 2;</code>
+             * @param index The index to set the value at.
+             * @param value The lockModes to set.
+             * @return This builder for chaining.
+             */
+            public Builder setLockModes(
+                    int index, Grpccatalog.LockMode value) {
+                if (value == null) {
+                    throw new NullPointerException();
+                }
+                ensureLockModesIsMutable();
+                lockModes_.set(index, value.getNumber());
+                onChanged();
+                return this;
+            }
+            /**
+             * <code>repeated .LockMode lock_modes = 2;</code>
+             * @param value The lockModes to add.
+             * @return This builder for chaining.
+             */
+            public Builder addLockModes(Grpccatalog.LockMode value) {
+                if (value == null) {
+                    throw new NullPointerException();
+                }
+                ensureLockModesIsMutable();
+                lockModes_.add(value.getNumber());
+                onChanged();
+                return this;
+            }
+            /**
+             * <code>repeated .LockMode lock_modes = 2;</code>
+             * @param values The lockModes to add.
+             * @return This builder for chaining.
+             */
+            public Builder addAllLockModes(
+                    java.lang.Iterable<? extends Grpccatalog.LockMode> values) {
+                ensureLockModesIsMutable();
+                for (Grpccatalog.LockMode value : values) {
+                    lockModes_.add(value.getNumber());
+                }
+                onChanged();
+                return this;
+            }
+            /**
+             * <code>repeated .LockMode lock_modes = 2;</code>
+             * @return This builder for chaining.
+             */
+            public Builder clearLockModes() {
+                lockModes_ = java.util.Collections.emptyList();
+                bitField0_ = (bitField0_ & ~0x00000002);
+                onChanged();
+                return this;
+            }
+            /**
+             * <code>repeated .LockMode lock_modes = 2;</code>
+             * @return A list containing the enum numeric values on the wire for lockModes.
+             */
+            public java.util.List<java.lang.Integer>
+            getLockModesValueList() {
+                return java.util.Collections.unmodifiableList(lockModes_);
+            }
+            /**
+             * <code>repeated .LockMode lock_modes = 2;</code>
+             * @param index The index of the value to return.
+             * @return The enum numeric value on the wire of lockModes at the given index.
+             */
+            public int getLockModesValue(int index) {
+                return lockModes_.get(index);
+            }
+            /**
+             * <code>repeated .LockMode lock_modes = 2;</code>
+             * @param index The index to set the value at.
+             * @param value The enum numeric value on the wire for lockModes to set.
+             * @return This builder for chaining.
+             */
+            public Builder setLockModesValue(
+                    int index, int value) {
+                ensureLockModesIsMutable();
+                lockModes_.set(index, value);
+                onChanged();
+                return this;
+            }
+            /**
+             * <code>repeated .LockMode lock_modes = 2;</code>
+             * @param value The enum numeric value on the wire for lockModes to add.
+             * @return This builder for chaining.
+             */
+            public Builder addLockModesValue(int value) {
+                ensureLockModesIsMutable();
+                lockModes_.add(value);
+                onChanged();
+                return this;
+            }
+            /**
+             * <code>repeated .LockMode lock_modes = 2;</code>
+             * @param values The enum numeric values on the wire for lockModes to add.
+             * @return This builder for chaining.
+             */
+            public Builder addAllLockModesValue(
+                    java.lang.Iterable<java.lang.Integer> values) {
+                ensureLockModesIsMutable();
+                for (int value : values) {
+                    lockModes_.add(value);
+                }
+                onChanged();
+                return this;
+            }
+
             private Grpccatalog.ExprNode optionalPred_;
             private com.google.protobuf.SingleFieldBuilderV3<
                     Grpccatalog.ExprNode, Grpccatalog.ExprNode.Builder, Grpccatalog.ExprNodeOrBuilder> optionalPredBuilder_;
             /**
-             * <code>optional .ExprNode optional_pred = 2;</code>
+             * <code>optional .ExprNode optional_pred = 3;</code>
              * @return Whether the optionalPred field is set.
              */
             public boolean hasOptionalPred() {
-                return ((bitField0_ & 0x00000002) != 0);
+                return ((bitField0_ & 0x00000004) != 0);
             }
             /**
-             * <code>optional .ExprNode optional_pred = 2;</code>
+             * <code>optional .ExprNode optional_pred = 3;</code>
              * @return The optionalPred.
              */
             public Grpccatalog.ExprNode getOptionalPred() {
@@ -7460,7 +7891,7 @@ public final class Grpccatalog {
                 }
             }
             /**
-             * <code>optional .ExprNode optional_pred = 2;</code>
+             * <code>optional .ExprNode optional_pred = 3;</code>
              */
             public Builder setOptionalPred(Grpccatalog.ExprNode value) {
                 if (optionalPredBuilder_ == null) {
@@ -7471,12 +7902,12 @@ public final class Grpccatalog {
                 } else {
                     optionalPredBuilder_.setMessage(value);
                 }
-                bitField0_ |= 0x00000002;
+                bitField0_ |= 0x00000004;
                 onChanged();
                 return this;
             }
             /**
-             * <code>optional .ExprNode optional_pred = 2;</code>
+             * <code>optional .ExprNode optional_pred = 3;</code>
              */
             public Builder setOptionalPred(
                     Grpccatalog.ExprNode.Builder builderForValue) {
@@ -7485,16 +7916,16 @@ public final class Grpccatalog {
                 } else {
                     optionalPredBuilder_.setMessage(builderForValue.build());
                 }
-                bitField0_ |= 0x00000002;
+                bitField0_ |= 0x00000004;
                 onChanged();
                 return this;
             }
             /**
-             * <code>optional .ExprNode optional_pred = 2;</code>
+             * <code>optional .ExprNode optional_pred = 3;</code>
              */
             public Builder mergeOptionalPred(Grpccatalog.ExprNode value) {
                 if (optionalPredBuilder_ == null) {
-                    if (((bitField0_ & 0x00000002) != 0) &&
+                    if (((bitField0_ & 0x00000004) != 0) &&
                             optionalPred_ != null &&
                             optionalPred_ != Grpccatalog.ExprNode.getDefaultInstance()) {
                         getOptionalPredBuilder().mergeFrom(value);
@@ -7504,15 +7935,15 @@ public final class Grpccatalog {
                 } else {
                     optionalPredBuilder_.mergeFrom(value);
                 }
-                bitField0_ |= 0x00000002;
+                bitField0_ |= 0x00000004;
                 onChanged();
                 return this;
             }
             /**
-             * <code>optional .ExprNode optional_pred = 2;</code>
+             * <code>optional .ExprNode optional_pred = 3;</code>
              */
             public Builder clearOptionalPred() {
-                bitField0_ = (bitField0_ & ~0x00000002);
+                bitField0_ = (bitField0_ & ~0x00000004);
                 optionalPred_ = null;
                 if (optionalPredBuilder_ != null) {
                     optionalPredBuilder_.dispose();
@@ -7522,15 +7953,15 @@ public final class Grpccatalog {
                 return this;
             }
             /**
-             * <code>optional .ExprNode optional_pred = 2;</code>
+             * <code>optional .ExprNode optional_pred = 3;</code>
              */
             public Grpccatalog.ExprNode.Builder getOptionalPredBuilder() {
-                bitField0_ |= 0x00000002;
+                bitField0_ |= 0x00000004;
                 onChanged();
                 return getOptionalPredFieldBuilder().getBuilder();
             }
             /**
-             * <code>optional .ExprNode optional_pred = 2;</code>
+             * <code>optional .ExprNode optional_pred = 3;</code>
              */
             public Grpccatalog.ExprNodeOrBuilder getOptionalPredOrBuilder() {
                 if (optionalPredBuilder_ != null) {
@@ -7541,7 +7972,7 @@ public final class Grpccatalog {
                 }
             }
             /**
-             * <code>optional .ExprNode optional_pred = 2;</code>
+             * <code>optional .ExprNode optional_pred = 3;</code>
              */
             private com.google.protobuf.SingleFieldBuilderV3<
                     Grpccatalog.ExprNode, Grpccatalog.ExprNode.Builder, Grpccatalog.ExprNodeOrBuilder>
@@ -27340,97 +27771,100 @@ public final class Grpccatalog {
                         "\030\002 \001(\010\022\023\n\013write_value\030\003 \001(\014\022\024\n\007trigger\030\004" +
                         " \001(\tH\001\210\001\001\022\014\n\004args\030\005 \003(\t\022\037\n\nparse_tree\030\006 " +
                         "\001(\0132\t.PathExprH\000\022\022\n\010path_str\030\007 \001(\tH\000B\006\n\004" +
-                        "pathB\n\n\010_trigger\"^\n\010PathExpr\022\031\n\005preds\030\001 " +
-                        "\003(\0132\n.Predicate\022%\n\roptional_pred\030\002 \001(\0132\t" +
-                        ".ExprNodeH\000\210\001\001B\020\n\016_optional_pred\"R\n\tPred" +
-                        "icate\022\036\n\texpr_node\030\001 \001(\0132\t.ExprNodeH\000\022\035\n" +
-                        "\010wildcard\030\002 \001(\0162\t.WildcardH\000B\006\n\004pred\"g\n\006" +
-                        "ExprOp\022\034\n\007op_type\030\001 \001(\0162\013.ExprOpType\022\030\n\005" +
-                        "right\030\002 \001(\0132\t.ExprNode\022\034\n\004left\030\003 \001(\0132\t.E" +
-                        "xprNodeH\000\210\001\001B\007\n\005_left\"C\n\010ExprBool\022\036\n\007op_" +
-                        "type\030\001 \001(\0162\r.ExprBoolType\022\027\n\004args\030\002 \003(\0132" +
-                        "\t.ExprNode\"\242\001\n\tExprConst\022\"\n\nconst_type\030\001" +
-                        " \001(\0162\016.ExprConstType\022\024\n\nstring_val\030\002 \001(\t" +
-                        "H\000\022\023\n\tint32_val\030\003 \001(\005H\000\022\023\n\tint64_val\030\004 \001" +
-                        "(\003H\000\022\024\n\ndouble_val\030\005 \001(\001H\000\022\022\n\010bool_val\030\006" +
-                        " \001(\010H\000B\007\n\005value\"\"\n\014ExprFieldRef\022\022\n\nfield" +
-                        "_refs\030\001 \003(\t\"\231\001\n\010ExprNode\022\032\n\007expr_op\030\001 \001(" +
-                        "\0132\007.ExprOpH\000\022\036\n\texpr_bool\030\002 \001(\0132\t.ExprBo" +
-                        "olH\000\022 \n\nexpr_const\030\003 \001(\0132\n.ExprConstH\000\022\'" +
-                        "\n\016expr_field_ref\030\004 \001(\0132\r.ExprFieldRefH\000B" +
-                        "\006\n\004node\"-\n\017StartTxnRequest\022\032\n\010txn_mode\030\001" +
-                        " \001(\0162\010.TxnMode\"P\n\020StartTxnResponse\022\017\n\007su" +
-                        "ccess\030\001 \001(\010\022\013\n\003vid\030\002 \001(\004\022\023\n\006txn_id\030\003 \001(\004" +
-                        "H\000\210\001\001B\t\n\007_txn_id\"]\n\017SnapshotRequest\022\014\n\004n" +
-                        "ame\030\001 \001(\t\022\020\n\003vid\030\002 \001(\004H\000\210\001\001\022\025\n\010override\030" +
-                        "\003 \001(\010H\001\210\001\001B\006\n\004_vidB\013\n\t_override\"0\n\020Snaps" +
-                        "hotResponse\022\017\n\007success\030\001 \001(\010\022\013\n\003vid\030\002 \001(" +
-                        "\004\"M\n\014CloneRequest\022\020\n\010src_path\030\001 \001(\t\022\021\n\td" +
-                        "est_path\030\002 \001(\t\022\020\n\003vid\030\003 \001(\004H\000\210\001\001B\006\n\004_vid" +
-                        "\"-\n\rCloneResponse\022\017\n\007success\030\001 \001(\010\022\013\n\003vi" +
-                        "d\030\002 \001(\004\"!\n\021GetGarbageRequest\022\014\n\004path\030\001 \001" +
-                        "(\t\"%\n\022GetGarbageResponse\022\017\n\007garbage\030\001 \003(" +
-                        "\014\"#\n\023ClearGarbageRequest\022\014\n\004pids\030\001 \003(\003\"\'" +
-                        "\n\024ClearGarbageResponse\022\017\n\007success\030\001 \001(\010\"" +
-                        "2\n\021DefineTypeRequest\022\035\n\010type_def\030\001 \001(\0132\013" +
-                        ".ObjTypeDef\"%\n\022DefineTypeResponse\022\017\n\007suc" +
-                        "cess\030\001 \001(\010\"\313\001\n\023ExecuteQueryRequest\022\021\n\tba" +
-                        "se_only\030\001 \001(\010\022\020\n\003vid\030\002 \001(\004H\001\210\001\001\022\023\n\006txn_i" +
-                        "d\030\003 \001(\004H\002\210\001\001\022\030\n\013return_type\030\004 \001(\rH\003\210\001\001\022\037" +
-                        "\n\nparse_tree\030\005 \001(\0132\t.PathExprH\000\022\023\n\tquery" +
-                        "_str\030\006 \001(\tH\000B\007\n\005queryB\006\n\004_vidB\t\n\007_txn_id" +
-                        "B\016\n\014_return_type\"\236\001\n\024ExecuteQueryRespons" +
-                        "e\022\020\n\010leaf_obj\030\001 \001(\010\022\021\n\tbase_only\030\002 \001(\010\022\013" +
-                        "\n\003vid\030\003 \001(\004\022\020\n\010obj_list\030\004 \001(\014\022\022\n\005abort\030\005" +
-                        " \001(\010H\000\210\001\001\022$\n\013compression\030\006 \001(\0162\017.BufComp" +
-                        "ressionB\010\n\006_abort\"X\n\rCommitRequest\022\016\n\006tx" +
-                        "n_id\030\001 \001(\004\022\031\n\twrite_set\030\002 \003(\0132\006.Write\022\022\n" +
-                        "\005abort\030\003 \001(\010H\000\210\001\001B\010\n\006_abort\"!\n\016CommitRes" +
-                        "ponse\022\017\n\007success\030\001 \001(\010\"=\n\020PreCommitReque" +
-                        "st\022\016\n\006txn_id\030\001 \001(\004\022\031\n\twrite_set\030\002 \003(\0132\006." +
-                        "Write\"$\n\021PreCommitResponse\022\017\n\007success\030\001 " +
-                        "\001(\010\"#\n\017BulkLoadRequest\022\020\n\010obj_list\030\001 \003(\014" +
-                        "\"=\n\020BulkLoadResponse\022\017\n\007success\030\001 \001(\010\022\013\n" +
-                        "\003vid\030\002 \001(\004\022\013\n\003err\030\003 \003(\t*:\n\007TxnMode\022\026\n\022TX" +
-                        "N_MODE_READ_ONLY\020\000\022\027\n\023TXN_MODE_READ_WRIT" +
-                        "E\020\001*c\n\tWriteType\022\022\n\016WRITE_TYPE_ADD\020\000\022\025\n\021" +
-                        "WRITE_TYPE_REMOVE\020\001\022\024\n\020WRITE_TYPE_MERGE\020" +
-                        "\002\022\025\n\021WRITE_TYPE_UPDATE\020\003*\227\001\n\013ObjTypeName" +
-                        "\022\032\n\026OBJ_TYPE_NAME_DATABASE\020\000\022\027\n\023OBJ_TYPE" +
-                        "_NAME_TABLE\020\001\022\033\n\027OBJ_TYPE_NAME_PARTITION" +
-                        "\020\002\022\035\n\031OBJ_TYPE_NAME_FILE_OBJECT\020\003\022\027\n\023OBJ" +
-                        "_TYPE_NAME_OTHER\020\004*\034\n\010Wildcard\022\020\n\014WILDCA" +
-                        "RD_ANY\020\000*\246\002\n\nExprOpType\022\025\n\021EXPR_OP_TYPE_" +
-                        "LESS\020\000\022\030\n\024EXPR_OP_TYPE_GREATER\020\001\022\027\n\023EXPR" +
-                        "_OP_TYPE_EQUALS\020\002\022\034\n\030EXPR_OP_TYPE_LESS_E" +
-                        "QUALS\020\003\022\037\n\033EXPR_OP_TYPE_GREATER_EQUALS\020\004" +
-                        "\022\033\n\027EXPR_OP_TYPE_NOT_EQUALS\020\005\022\025\n\021EXPR_OP" +
-                        "_TYPE_PLUS\020\006\022\026\n\022EXPR_OP_TYPE_MINUS\020\007\022\025\n\021" +
-                        "EXPR_OP_TYPE_MULT\020\010\022\024\n\020EXPR_OP_TYPE_DIV\020" +
-                        "\t\022\026\n\022EXPR_OP_TYPE_OTHER\020\n*U\n\014ExprBoolTyp" +
-                        "e\022\025\n\021EXPR_BOOL_TYPE_OR\020\000\022\026\n\022EXPR_BOOL_TY" +
-                        "PE_AND\020\001\022\026\n\022EXPR_BOOL_TYPE_NOT\020\002*\313\001\n\rExp" +
-                        "rConstType\022\032\n\026EXPR_CONST_TYPE_STRING\020\000\022\027" +
-                        "\n\023EXPR_CONST_TYPE_INT\020\001\022\030\n\024EXPR_CONST_TY" +
-                        "PE_LONG\020\002\022\032\n\026EXPR_CONST_TYPE_DOUBLE\020\003\022\033\n" +
-                        "\027EXPR_CONST_TYPE_BOOLEAN\020\004\022\030\n\024EXPR_CONST" +
-                        "_TYPE_DATE\020\005\022\030\n\024EXPR_CONST_TYPE_NULL\020\006*D" +
-                        "\n\016BufCompression\022\026\n\022BUF_NO_COMPRESSION\020\000" +
-                        "\022\032\n\026BUF_SNAPPY_COMPRESSION\020\0012\223\004\n\013GRPCCat" +
-                        "alog\022/\n\010StartTxn\022\020.StartTxnRequest\032\021.Sta" +
-                        "rtTxnResponse\022/\n\010Snapshot\022\020.SnapshotRequ" +
-                        "est\032\021.SnapshotResponse\022&\n\005Clone\022\r.CloneR" +
-                        "equest\032\016.CloneResponse\0225\n\nGetGarbage\022\022.G" +
-                        "etGarbageRequest\032\023.GetGarbageResponse\022;\n" +
-                        "\014ClearGarbage\022\024.ClearGarbageRequest\032\025.Cl" +
-                        "earGarbageResponse\0225\n\nDefineType\022\022.Defin" +
-                        "eTypeRequest\032\023.DefineTypeResponse\022=\n\014Exe" +
-                        "cuteQuery\022\024.ExecuteQueryRequest\032\025.Execut" +
-                        "eQueryResponse0\001\022)\n\006Commit\022\016.CommitReque" +
-                        "st\032\017.CommitResponse\0222\n\tPreCommit\022\021.PreCo" +
-                        "mmitRequest\032\022.PreCommitResponse\0221\n\010BulkL" +
-                        "oad\022\020.BulkLoadRequest\032\021.BulkLoadResponse" +
-                        "(\001b\006proto3"
+                        "pathB\n\n\010_trigger\"}\n\010PathExpr\022\031\n\005preds\030\001 " +
+                        "\003(\0132\n.Predicate\022\035\n\nlock_modes\030\002 \003(\0162\t.Lo" +
+                        "ckMode\022%\n\roptional_pred\030\003 \001(\0132\t.ExprNode" +
+                        "H\000\210\001\001B\020\n\016_optional_pred\"R\n\tPredicate\022\036\n\t" +
+                        "expr_node\030\001 \001(\0132\t.ExprNodeH\000\022\035\n\010wildcard" +
+                        "\030\002 \001(\0162\t.WildcardH\000B\006\n\004pred\"g\n\006ExprOp\022\034\n" +
+                        "\007op_type\030\001 \001(\0162\013.ExprOpType\022\030\n\005right\030\002 \001" +
+                        "(\0132\t.ExprNode\022\034\n\004left\030\003 \001(\0132\t.ExprNodeH\000" +
+                        "\210\001\001B\007\n\005_left\"C\n\010ExprBool\022\036\n\007op_type\030\001 \001(" +
+                        "\0162\r.ExprBoolType\022\027\n\004args\030\002 \003(\0132\t.ExprNod" +
+                        "e\"\242\001\n\tExprConst\022\"\n\nconst_type\030\001 \001(\0162\016.Ex" +
+                        "prConstType\022\024\n\nstring_val\030\002 \001(\tH\000\022\023\n\tint" +
+                        "32_val\030\003 \001(\005H\000\022\023\n\tint64_val\030\004 \001(\003H\000\022\024\n\nd" +
+                        "ouble_val\030\005 \001(\001H\000\022\022\n\010bool_val\030\006 \001(\010H\000B\007\n" +
+                        "\005value\"\"\n\014ExprFieldRef\022\022\n\nfield_refs\030\001 \003" +
+                        "(\t\"\231\001\n\010ExprNode\022\032\n\007expr_op\030\001 \001(\0132\007.ExprO" +
+                        "pH\000\022\036\n\texpr_bool\030\002 \001(\0132\t.ExprBoolH\000\022 \n\ne" +
+                        "xpr_const\030\003 \001(\0132\n.ExprConstH\000\022\'\n\016expr_fi" +
+                        "eld_ref\030\004 \001(\0132\r.ExprFieldRefH\000B\006\n\004node\"-" +
+                        "\n\017StartTxnRequest\022\032\n\010txn_mode\030\001 \001(\0162\010.Tx" +
+                        "nMode\"P\n\020StartTxnResponse\022\017\n\007success\030\001 \001" +
+                        "(\010\022\013\n\003vid\030\002 \001(\004\022\023\n\006txn_id\030\003 \001(\004H\000\210\001\001B\t\n\007" +
+                        "_txn_id\"]\n\017SnapshotRequest\022\014\n\004name\030\001 \001(\t" +
+                        "\022\020\n\003vid\030\002 \001(\004H\000\210\001\001\022\025\n\010override\030\003 \001(\010H\001\210\001" +
+                        "\001B\006\n\004_vidB\013\n\t_override\"0\n\020SnapshotRespon" +
+                        "se\022\017\n\007success\030\001 \001(\010\022\013\n\003vid\030\002 \001(\004\"M\n\014Clon" +
+                        "eRequest\022\020\n\010src_path\030\001 \001(\t\022\021\n\tdest_path\030" +
+                        "\002 \001(\t\022\020\n\003vid\030\003 \001(\004H\000\210\001\001B\006\n\004_vid\"-\n\rClone" +
+                        "Response\022\017\n\007success\030\001 \001(\010\022\013\n\003vid\030\002 \001(\004\"!" +
+                        "\n\021GetGarbageRequest\022\014\n\004path\030\001 \001(\t\"%\n\022Get" +
+                        "GarbageResponse\022\017\n\007garbage\030\001 \003(\014\"#\n\023Clea" +
+                        "rGarbageRequest\022\014\n\004pids\030\001 \003(\003\"\'\n\024ClearGa" +
+                        "rbageResponse\022\017\n\007success\030\001 \001(\010\"2\n\021Define" +
+                        "TypeRequest\022\035\n\010type_def\030\001 \001(\0132\013.ObjTypeD" +
+                        "ef\"%\n\022DefineTypeResponse\022\017\n\007success\030\001 \001(" +
+                        "\010\"\313\001\n\023ExecuteQueryRequest\022\021\n\tbase_only\030\001" +
+                        " \001(\010\022\020\n\003vid\030\002 \001(\004H\001\210\001\001\022\023\n\006txn_id\030\003 \001(\004H\002" +
+                        "\210\001\001\022\030\n\013return_type\030\004 \001(\rH\003\210\001\001\022\037\n\nparse_t" +
+                        "ree\030\005 \001(\0132\t.PathExprH\000\022\023\n\tquery_str\030\006 \001(" +
+                        "\tH\000B\007\n\005queryB\006\n\004_vidB\t\n\007_txn_idB\016\n\014_retu" +
+                        "rn_type\"\236\001\n\024ExecuteQueryResponse\022\020\n\010leaf" +
+                        "_obj\030\001 \001(\010\022\021\n\tbase_only\030\002 \001(\010\022\013\n\003vid\030\003 \001" +
+                        "(\004\022\020\n\010obj_list\030\004 \001(\014\022\022\n\005abort\030\005 \001(\010H\000\210\001\001" +
+                        "\022$\n\013compression\030\006 \001(\0162\017.BufCompressionB\010" +
+                        "\n\006_abort\"X\n\rCommitRequest\022\016\n\006txn_id\030\001 \001(" +
+                        "\004\022\031\n\twrite_set\030\002 \003(\0132\006.Write\022\022\n\005abort\030\003 " +
+                        "\001(\010H\000\210\001\001B\010\n\006_abort\"!\n\016CommitResponse\022\017\n\007" +
+                        "success\030\001 \001(\010\"=\n\020PreCommitRequest\022\016\n\006txn" +
+                        "_id\030\001 \001(\004\022\031\n\twrite_set\030\002 \003(\0132\006.Write\"$\n\021" +
+                        "PreCommitResponse\022\017\n\007success\030\001 \001(\010\"#\n\017Bu" +
+                        "lkLoadRequest\022\020\n\010obj_list\030\001 \003(\014\"=\n\020BulkL" +
+                        "oadResponse\022\017\n\007success\030\001 \001(\010\022\013\n\003vid\030\002 \001(" +
+                        "\004\022\013\n\003err\030\003 \003(\t*:\n\007TxnMode\022\026\n\022TXN_MODE_RE" +
+                        "AD_ONLY\020\000\022\027\n\023TXN_MODE_READ_WRITE\020\001*u\n\010Lo" +
+                        "ckMode\022\020\n\014LOCK_MODE_NL\020\000\022\020\n\014LOCK_MODE_IS" +
+                        "\020\001\022\020\n\014LOCK_MODE_IX\020\002\022\017\n\013LOCK_MODE_S\020\003\022\021\n" +
+                        "\rLOCK_MODE_SIX\020\004\022\017\n\013LOCK_MODE_X\020\005*c\n\tWri" +
+                        "teType\022\022\n\016WRITE_TYPE_ADD\020\000\022\025\n\021WRITE_TYPE" +
+                        "_REMOVE\020\001\022\024\n\020WRITE_TYPE_MERGE\020\002\022\025\n\021WRITE" +
+                        "_TYPE_UPDATE\020\003*\227\001\n\013ObjTypeName\022\032\n\026OBJ_TY" +
+                        "PE_NAME_DATABASE\020\000\022\027\n\023OBJ_TYPE_NAME_TABL" +
+                        "E\020\001\022\033\n\027OBJ_TYPE_NAME_PARTITION\020\002\022\035\n\031OBJ_" +
+                        "TYPE_NAME_FILE_OBJECT\020\003\022\027\n\023OBJ_TYPE_NAME" +
+                        "_OTHER\020\004*\034\n\010Wildcard\022\020\n\014WILDCARD_ANY\020\000*\246" +
+                        "\002\n\nExprOpType\022\025\n\021EXPR_OP_TYPE_LESS\020\000\022\030\n\024" +
+                        "EXPR_OP_TYPE_GREATER\020\001\022\027\n\023EXPR_OP_TYPE_E" +
+                        "QUALS\020\002\022\034\n\030EXPR_OP_TYPE_LESS_EQUALS\020\003\022\037\n" +
+                        "\033EXPR_OP_TYPE_GREATER_EQUALS\020\004\022\033\n\027EXPR_O" +
+                        "P_TYPE_NOT_EQUALS\020\005\022\025\n\021EXPR_OP_TYPE_PLUS" +
+                        "\020\006\022\026\n\022EXPR_OP_TYPE_MINUS\020\007\022\025\n\021EXPR_OP_TY" +
+                        "PE_MULT\020\010\022\024\n\020EXPR_OP_TYPE_DIV\020\t\022\026\n\022EXPR_" +
+                        "OP_TYPE_OTHER\020\n*U\n\014ExprBoolType\022\025\n\021EXPR_" +
+                        "BOOL_TYPE_OR\020\000\022\026\n\022EXPR_BOOL_TYPE_AND\020\001\022\026" +
+                        "\n\022EXPR_BOOL_TYPE_NOT\020\002*\313\001\n\rExprConstType" +
+                        "\022\032\n\026EXPR_CONST_TYPE_STRING\020\000\022\027\n\023EXPR_CON" +
+                        "ST_TYPE_INT\020\001\022\030\n\024EXPR_CONST_TYPE_LONG\020\002\022" +
+                        "\032\n\026EXPR_CONST_TYPE_DOUBLE\020\003\022\033\n\027EXPR_CONS" +
+                        "T_TYPE_BOOLEAN\020\004\022\030\n\024EXPR_CONST_TYPE_DATE" +
+                        "\020\005\022\030\n\024EXPR_CONST_TYPE_NULL\020\006*D\n\016BufCompr" +
+                        "ession\022\026\n\022BUF_NO_COMPRESSION\020\000\022\032\n\026BUF_SN" +
+                        "APPY_COMPRESSION\020\0012\223\004\n\013GRPCCatalog\022/\n\010St" +
+                        "artTxn\022\020.StartTxnRequest\032\021.StartTxnRespo" +
+                        "nse\022/\n\010Snapshot\022\020.SnapshotRequest\032\021.Snap" +
+                        "shotResponse\022&\n\005Clone\022\r.CloneRequest\032\016.C" +
+                        "loneResponse\0225\n\nGetGarbage\022\022.GetGarbageR" +
+                        "equest\032\023.GetGarbageResponse\022;\n\014ClearGarb" +
+                        "age\022\024.ClearGarbageRequest\032\025.ClearGarbage" +
+                        "Response\0225\n\nDefineType\022\022.DefineTypeReque" +
+                        "st\032\023.DefineTypeResponse\022=\n\014ExecuteQuery\022" +
+                        "\024.ExecuteQueryRequest\032\025.ExecuteQueryResp" +
+                        "onse0\001\022)\n\006Commit\022\016.CommitRequest\032\017.Commi" +
+                        "tResponse\0222\n\tPreCommit\022\021.PreCommitReques" +
+                        "t\032\022.PreCommitResponse\0221\n\010BulkLoad\022\020.Bulk" +
+                        "LoadRequest\032\021.BulkLoadResponse(\001b\006proto3"
         };
         descriptor = com.google.protobuf.Descriptors.FileDescriptor
                 .internalBuildGeneratedFileFrom(descriptorData,
@@ -27477,7 +27911,7 @@ public final class Grpccatalog {
         internal_static_PathExpr_fieldAccessorTable = new
                 com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
                 internal_static_PathExpr_descriptor,
-                new java.lang.String[] { "Preds", "OptionalPred", "OptionalPred", });
+                new java.lang.String[] { "Preds", "LockModes", "OptionalPred", "OptionalPred", });
         internal_static_Predicate_descriptor =
                 getDescriptor().getMessageTypes().get(7);
         internal_static_Predicate_fieldAccessorTable = new
