@@ -1405,7 +1405,6 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     var lastResponse : Option[ExecuteQueryResponse] = None
     queryResponses.forEachRemaining(response => {
       lastResponse = Some(response)
-
       val responseBuf = response.getCompression() match {
         case BufCompression.BUF_SNAPPY_COMPRESSION => Snappy.uncompress(
           response.getObjList().toByteArray())
@@ -1719,10 +1718,12 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
   }
 
   def listFilesWithStatsByFilter(db: String, table: String, predicates: Seq[Expression],
-                        txn : Option[TreeTxn]): Seq[CatalogTableFile] = {
-    val tableObj = getTable(db, table, txn)
+                                txn : Option[TreeTxn]): Seq[CatalogTableFile] = {
+
+    val tableObj = getTable(db, table, txn, Some(LockMode.LOCK_MODE_NL))
+
     if (tableObj != null) {
-      listFilesWithStatsByFilter(tableObj, predicates, txn)
+      listFilesWithStatsByFilter(tableObj, predicates, txn, Some(LockMode.LOCK_MODE_NL))
     }
     else {
       ArrayBuffer[CatalogTableFile]()
@@ -1763,8 +1764,29 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
   }
 
   def listFilesWithStatsByFilter(table: CatalogTable, predicates: Seq[Expression],
-                        txn : Option[TreeTxn]): Seq[CatalogTableFile] = {
+                        txn : Option[TreeTxn], lock_mode : Option[LockMode] = None):
+                        Seq[CatalogTableFile] = {
     val pathExprBuilder = convertFilters(table, predicates, false)
+
+    val intention_lock = lock_mode.getOrElse(LockMode.LOCK_MODE_NL) match {
+      case LockMode.LOCK_MODE_NL => LockMode.LOCK_MODE_NL
+      case LockMode.LOCK_MODE_IS => LockMode.LOCK_MODE_IS
+      case LockMode.LOCK_MODE_S => LockMode.LOCK_MODE_IS
+      case LockMode.LOCK_MODE_IX => LockMode.LOCK_MODE_IX
+      case LockMode.LOCK_MODE_SIX => LockMode.LOCK_MODE_IX
+      case LockMode.LOCK_MODE_X => LockMode.LOCK_MODE_IX
+      case _ => LockMode.LOCK_MODE_NL
+    }
+    pathExprBuilder.addLockModes(intention_lock)
+    pathExprBuilder.addLockModes(intention_lock)
+    pathExprBuilder.addLockModes(intention_lock)
+
+    table.partitionSchema.foreach { _ =>
+      pathExprBuilder.addLockModes(intention_lock)
+    }
+
+    // the actual file objects are implicitly locked for less overhead
+    pathExprBuilder.addLockModes(LockMode.LOCK_MODE_NL)
 
     val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(
       pathExprBuilder.build()).setBaseOnly(true).setReturnType(2)
@@ -1831,15 +1853,34 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     toFileStatuses(queryResponses, txn)
   }
 
-  def listFilesWithStats(table : CatalogTable, txn : Option[TreeTxn]) : Seq[CatalogTableFile] = {
+  def listFilesWithStats(table : CatalogTable, txn : Option[TreeTxn],
+                         lock_mode : Option[LockMode] = None) : Seq[CatalogTableFile] = {
     val dbPred = constructDbPred(table.identifier.database.get)
     val tablePred = constructTablePred(table.identifier.table)
     val pathExprBuilder = PathExpr.newBuilder().addPreds(dbPred).addPreds(tablePred)
 
+    val intention_lock = lock_mode.getOrElse(LockMode.LOCK_MODE_NL) match {
+      case LockMode.LOCK_MODE_NL => LockMode.LOCK_MODE_NL
+      case LockMode.LOCK_MODE_IS => LockMode.LOCK_MODE_IS
+      case LockMode.LOCK_MODE_S => LockMode.LOCK_MODE_IS
+      case LockMode.LOCK_MODE_IX => LockMode.LOCK_MODE_IX
+      case LockMode.LOCK_MODE_SIX => LockMode.LOCK_MODE_IX
+      case LockMode.LOCK_MODE_X => LockMode.LOCK_MODE_IX
+      case _ => LockMode.LOCK_MODE_NL
+    }
+    pathExprBuilder.addLockModes(intention_lock)
+    pathExprBuilder.addLockModes(intention_lock)
+    pathExprBuilder.addLockModes(intention_lock)
+
     val partPred = constructBinaryPred("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "partition")
     table.partitionColumnNames.foreach({ column_name =>
       pathExprBuilder.addPreds(partPred)
+      pathExprBuilder.addLockModes(intention_lock)
     })
+
+    // the actual file objects are implicitly locked for less overhead
+    pathExprBuilder.addLockModes(LockMode.LOCK_MODE_NL)
+
     val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(pathExprBuilder.
       addPreds(Predicate.newBuilder().setWildcard(Grpccatalog.Wildcard.WILDCARD_ANY).build()).
       build()).setBaseOnly(true).setReturnType(2)
