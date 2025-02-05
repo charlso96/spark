@@ -234,6 +234,7 @@ message ExprNode {
  */
 message StartTxnRequest {
     TxnMode txn_mode = 1;
+    optional uint64 read_vid = 2;
 }
 
 /*
@@ -371,6 +372,7 @@ message CommitRequest {
  */
 message CommitResponse {
     bool success = 1;
+    uint64 commit_vid = 2;
 }
 
 /*
@@ -417,3 +419,5 @@ service GRPCCatalog {
     rpc PreCommit(PreCommitRequest) returns (PreCommitResponse);
     rpc BulkLoad(stream BulkLoadRequest) returns (BulkLoadResponse);
 }
+
+

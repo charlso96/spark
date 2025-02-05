@@ -778,6 +778,7 @@ private[spark] class TreeTxn(val txnMode : TxnMode,
                              val vid : Option[Long] = None,
                              val commitRequest : Option[CommitRequest.Builder] = None) {
   private var aborted : Boolean = false
+  private var commit_vid : Option[Long] = None
 
   def setAbort(abort : Boolean): Unit = {
     aborted = abort
@@ -785,6 +786,14 @@ private[spark] class TreeTxn(val txnMode : TxnMode,
 
   def isOK(): Boolean = {
     !aborted
+  }
+
+  def setCommitVid(new_vid : Long): Unit = {
+    commit_vid = Some(new_vid)
+  }
+
+  def getCommitVid(): Option[Long] = {
+    commit_vid
   }
 
 }
@@ -1335,6 +1344,14 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
         .setOpType(ExprBoolType.EXPR_BOOL_TYPE_AND))).build()
   }
 
+  private def constructStatsPred() : Predicate = {
+    val tableOidExpr = constructBinaryExpr("obj_id", ExprOpType.EXPR_OP_TYPE_EQUALS, "stats")
+    val tableTypeExpr = constructBinaryExpr("obj_type", ExprOpType.EXPR_OP_TYPE_EQUALS, "stats")
+    Predicate.newBuilder().setExprNode(ExprNode.newBuilder()
+      .setExprBool(ExprBool.newBuilder().addArgs(tableOidExpr).addArgs(tableTypeExpr)
+        .setOpType(ExprBoolType.EXPR_BOOL_TYPE_AND))).build()
+  }
+
   private def setTxnId(queryRequest : ExecuteQueryRequest.Builder, txn : Option[TreeTxn]) = {
     if (txn.isDefined) {
       if (txn.get.txnMode == TxnMode.TXN_MODE_READ_ONLY)  {
@@ -1426,9 +1443,13 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
   }
 
   // start a new txn. returns Some(Txn) if successful
-  def startTransaction(txnMode : TxnMode) : Option[TreeTxn] = {
-    val startTxnResponse = catalogStub.startTxn(StartTxnRequest.newBuilder()
-        .setTxnMode(txnMode).build)
+  def startTransaction(txnMode : TxnMode, vid : Option[Long] = None) : Option[TreeTxn] = {
+    val startTxnRequest = StartTxnRequest.newBuilder().setTxnMode(txnMode)
+    if (vid.isDefined && txnMode == TxnMode.TXN_MODE_READ_ONLY) {
+      startTxnRequest.setReadVid(vid.get)
+    }
+
+    val startTxnResponse = catalogStub.startTxn(startTxnRequest.build)
     if (startTxnResponse.getSuccess && txnMode == TxnMode.TXN_MODE_READ_ONLY) {
       Some(new TreeTxn(txnMode, None, Some(startTxnResponse.getVid), None))
     }
@@ -1440,6 +1461,8 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     else {
       None
     }
+
+
   }
 
   // commits the given txn and returns true if successful
@@ -1454,6 +1477,9 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
       }
 
       val commitResponse = catalogStub.commit(txn.commitRequest.get.build)
+      if (commitResponse.getSuccess) {
+        txn.setCommitVid(commitResponse.getCommitVid)
+      }
       commitResponse.getSuccess
     }
     else {
@@ -1550,6 +1576,67 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
         val tableBson = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
           responseBuf.size - bufIter.dataIdx())
         TreeSerde.toCatalogTable(tableBson)
+      }
+      else {
+        null
+      }
+    }
+    else {
+      null
+    }
+  }
+
+  // if lock modes are defined, there should be at least 3 lock modes starting from the root object
+  def getTableStats(db: String, table: String, txn: Option[TreeTxn] = None,
+                    lock_mode: Option[LockMode] = None): CatalogStatistics = {
+    val dbPred = constructDbPred(db)
+    val tablePred = constructTablePred(table)
+    val statsPred = constructStatsPred()
+
+    val path_expr = PathExpr.newBuilder().addPreds(dbPred).addPreds(tablePred).addPreds(statsPred)
+    if (lock_mode.isDefined) {
+      val intention_lock = lock_mode.getOrElse(LockMode.LOCK_MODE_NL) match {
+        case LockMode.LOCK_MODE_NL => LockMode.LOCK_MODE_NL
+        case LockMode.LOCK_MODE_IS => LockMode.LOCK_MODE_IS
+        case LockMode.LOCK_MODE_S => LockMode.LOCK_MODE_IS
+        case LockMode.LOCK_MODE_IX => LockMode.LOCK_MODE_IX
+        case LockMode.LOCK_MODE_SIX => LockMode.LOCK_MODE_IX
+        case LockMode.LOCK_MODE_X => LockMode.LOCK_MODE_IX
+        case _ => LockMode.LOCK_MODE_NL
+      }
+
+      path_expr.addLockModes(intention_lock).addLockModes(intention_lock)
+        .addLockModes(lock_mode.getOrElse(LockMode.LOCK_MODE_NL))
+    }
+
+    val queryRequest = ExecuteQueryRequest.newBuilder().setParseTree(path_expr.build())
+      .setBaseOnly(true).setReturnType(1)
+
+    setTxnId(queryRequest, txn)
+
+    val queryResponses = catalogStub.executeQuery(queryRequest.build())
+    if (queryResponses.hasNext) {
+      val firstResponse = queryResponses.next()
+      var lastResponse = firstResponse
+      while (queryResponses.hasNext) {
+        lastResponse = queryResponses.next()
+      }
+      // if part of a txn session, check if txn has been aborted
+      if (txn.isDefined && lastResponse.hasAbort) {
+        txn.get.setAbort(lastResponse.getAbort)
+        // commit to deallocate resources on the server side
+      }
+
+      val responseBuf = firstResponse.getCompression() match {
+        case BufCompression.BUF_SNAPPY_COMPRESSION => Snappy.uncompress(
+          firstResponse.getObjList().toByteArray())
+        case _ => firstResponse.getObjList().toByteArray()
+      }
+      val bufIter = new BufIterator(responseBuf)
+      if (bufIter.valid()) {
+        val tableBson = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
+          responseBuf.size - bufIter.dataIdx())
+        TreeSerde.toCatalogStatistics(tableBson)
       }
       else {
         null
@@ -2234,5 +2321,71 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     else {
       None
     }
+  }
+
+  // this is rather add hoc as we use max field of stats object for auto increment column.
+  // Note that the auto increment field can be defined as another child object of the table
+  def fetchAddAttr(db: String, table: String, attr_name : String, arg : Long) : Option[Long] = {
+    var success = false
+    var commit_vid : Option[Long] = None
+    // fuel to limit number of retries
+    var fuel = 0
+    while (fuel < 10 && !success) {
+      fuel += 1
+
+      val txn = startTransaction(TxnMode.TXN_MODE_READ_WRITE)
+      val table_obj = getTable(db, table, txn, Some(LockMode.LOCK_MODE_X))
+      if (table_obj != null && table_obj.schema.fields.exists(_.name == attr_name)) {
+        // construct merge bson for the stats object
+        val outputBuffer = new BasicOutputBuffer()
+        val writer = new BsonBinaryWriter(outputBuffer)
+        writer.writeStartDocument()
+        writer.writeStartDocument("colStats")
+        writer.writeStartDocument(attr_name)
+        writer.writeStartDocument("max")
+
+        writer.writeString("op", "4")
+        writer.writeInt64("", arg)
+
+        writer.writeEndDocument()
+        writer.writeEndDocument()
+        writer.writeEndDocument()
+        writer.writeEndDocument()
+
+        val mergeByteString = ByteString.copyFrom(outputBuffer.getInternalBuffer, 0,
+          outputBuffer.getPosition)
+
+        // add the constructed merge value to the write set.
+        txn.get.commitRequest.get.addWriteSet(Write.newBuilder()
+          .setType(WriteType.WRITE_TYPE_MERGE)
+          .setIsLeaf(false)
+          .setWriteValue(mergeByteString)
+          .setPathStr("/" + db + "/" + table + "/stats")
+        )
+
+        success = commit(txn.get)
+        commit_vid = txn.get.getCommitVid()
+      }
+      else {
+        // break out of while loop
+        fuel = 10
+        // to clear out the read and write set.
+        if (txn.isDefined) {
+          commit(txn.get)
+        }
+      }
+
+    }
+
+    // now get the previous stat.
+    if (commit_vid.isDefined) {
+      val read_txn = startTransaction(TxnMode.TXN_MODE_READ_ONLY, Some(commit_vid.get - 1))
+      val prev_stats = getTableStats(db, table, read_txn)
+      Some(prev_stats.colStats(attr_name).max.get.toLong)
+    }
+    else {
+      None
+    }
+
   }
 }

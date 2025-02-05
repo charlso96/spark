@@ -19,11 +19,14 @@ package org.apache.spark.exp
 
 import java.io.{File, FileWriter}
 import java.net.URI
+import java.time.Duration
+import java.time.Instant
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 import java.util.concurrent.ThreadLocalRandom
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong}
+import java.util.concurrent.locks.ReentrantReadWriteLock
 
 import scala.collection.mutable.ArrayBuffer
 import scala.io.Source
@@ -72,9 +75,31 @@ class TableConfig(table_json: JsonNode, scale_factor : String) {
   val schema : Array[AttrConfig] = deSerSchema(table_json.get("schema"))
   val bytes_per_row : Long = 4*(partition_schema.length + schema.length)
   val num_rows : Long = table_json.get("scaling").get(scale_factor).asLong()
-  val high_watermark : AtomicLong = new AtomicLong(num_rows)
+
   val business_id : Option[AttrConfig] = schema.find{ attr_config => attr_config.name.
     endsWith("_id") && attr_config.clustered }
+  val sk : Option[AttrConfig] = schema.find{ attr_config => attr_config.name.
+    endsWith("sk") && attr_config.clustered }
+  private var high_watermark : Long = num_rows
+  private val lock = new ReentrantReadWriteLock()
+
+  def setWatermark(new_watermark: Long): Unit = {
+    lock.writeLock().lock()
+    try {
+      high_watermark = high_watermark.max(new_watermark)
+    } finally {
+      lock.writeLock().unlock()
+    }
+  }
+
+  def getWatermark(): Long = {
+    lock.readLock().lock()
+    try {
+      high_watermark
+    } finally {
+      lock.readLock().unlock()
+    }
+  }
 
   private def deSerSchema(schema_json : JsonNode) : Array[AttrConfig] = {
     val schema = ArrayBuffer[AttrConfig]()
@@ -321,6 +346,7 @@ object ConcurrencyExperiment {
 
     // print the results
     val summaryWriter = new FileWriter(new File(misc_config("summaryOutput")), true)
+    summaryWriter.write("{\"workloadRatio\":\"" + misc_config("workloadRatio") + "\", ")
     summaryWriter.write("\"numCommits\":" + total_num_commits + ", ")
     summaryWriter.write("\"numAborts\":" + total_num_aborts + ", ")
     summaryWriter.write("\"throughput\":" +
@@ -328,7 +354,7 @@ object ConcurrencyExperiment {
     summaryWriter.write("\"avgCommitLatency\":" + avgCommitLatency / 1000000 + ", ")
     summaryWriter.write("\"dryRunTime\":" + dry_run_time / 1000 + ", ")
     summaryWriter.write("\"experimentTime\":" + experiment_time / 1000 + ", ")
-    summaryWriter.write("\"numThreads\":" + misc_config("numThreads") + ", ")
+    summaryWriter.write("\"numThreads\":" + misc_config("numThreads") + "}")
     summaryWriter.write("\n")
     summaryWriter.close()
     //
@@ -375,22 +401,27 @@ object ConcurrencyExperiment {
 
     // helper function for running a single cycle
     private def runCycle(is_dry_run : Boolean): Unit = {
-      val success = op_generator.genOp() match {
+      val op = op_generator.genOp()
+
+      val startTime = Instant.now()
+      val success = op match {
         case 0 => optimizeOp()
         case 1 => insertOp()
         case 2 => deleteOp()
         case 3 => updateOp()
         case _ => readOp()
       }
+      val endTime = Instant.now()
 
       // if not dry run, collect the results
       if (!is_dry_run) {
         if (success) {
           num_commits += 1
-
+          commit_latencies.append(Duration.between(startTime, endTime).toNanos())
         }
         else {
           num_aborts += 1
+          abort_latencies.append(Duration.between(startTime, endTime).toNanos())
         }
       }
     }
@@ -457,11 +488,24 @@ object ConcurrencyExperiment {
     }
 
     private def insertDim() : Boolean = {
-      // start of insert operation
-      val txn = tree_cat.startTransaction(TxnMode.TXN_MODE_READ_WRITE)
-
       // generate dimension tables
       val dest_dim_table_names = table_generator.genInsertDimTables()
+      // increment the identity sk as an independent transaction first
+      val min_id_sk = scala.collection.mutable.Map[String, Long]()
+      val max_id_sk = scala.collection.mutable.Map[String, Long]()
+      dest_dim_table_names.foreach { dest_dim_table_name =>
+        val dest_dim_table_config = table_configs(dest_dim_table_name)
+        val num_new_dim_records = (insert_config.insert_ratio * dest_dim_table_config
+          .num_rows).toLong
+        val min_sk = tree_cat.fetchAddAttr(database_name, dest_dim_table_config.name,
+          dest_dim_table_config.sk.get.name, num_new_dim_records).get.toInt + 1
+        val max_sk = min_sk + num_new_dim_records
+        min_id_sk(dest_dim_table_name) = min_sk
+        max_id_sk(dest_dim_table_name) = max_sk
+      }
+
+      // start of insert operation
+      val txn = tree_cat.startTransaction(TxnMode.TXN_MODE_READ_WRITE)
 
       dest_dim_table_names.foreach { dest_dim_table_name =>
         val dest_dim_table_config = table_configs(dest_dim_table_name)
@@ -476,18 +520,15 @@ object ConcurrencyExperiment {
             dest_dim_table_config.schema.foreach { attr_config =>
               if (attr_config.key.isDefined) {
                 val dim_table_config = table_configs(attr_config.key.get)
-                val cardinality = dim_table_config.high_watermark.get.toInt
+                val cardinality = dim_table_config.getWatermark().toInt
                 var min_sk = ThreadLocalRandom.current().nextInt(cardinality)
                 var max_sk = min_sk
 
                 // increment the watermark only once, for the surrogate key
                 if (dest_dim_table_name == attr_config.key.get) {
                   if (attr_config.name.endsWith("_sk")) {
-                    val num_new_dim_records = (insert_config.insert_ratio * dest_dim_table_config
-                      .num_rows).toLong
-                    min_sk = dest_dim_table_config.high_watermark.getAndAdd(num_new_dim_records)
-                      .toInt
-                    max_sk = (min_sk + num_new_dim_records - 1).toInt
+                    min_sk = min_id_sk(dest_dim_table_name).toInt
+                    max_sk = max_id_sk(dest_dim_table_name).toInt
                   }
                 }
                 else {
@@ -521,19 +562,12 @@ object ConcurrencyExperiment {
                   if (dest_dim_table_name == attr_config.key.get) {
                     // populate column statistics for both surrogate key and business id
                     if (attr_config.name.endsWith("_sk") && txn.get.isOK()) {
-                      // get the dimension table
-                      val table = tree_cat.getTable(database_name, dim_table_config.name, txn,
-                        Some(LockMode.LOCK_MODE_IS))
-                      if (txn.get.isOK()) {
-                        // get the list of files from the dimension table
-                        tree_cat.listFilesByFilter(table, filters, txn, Some(LockMode.LOCK_MODE_S))
-                        val col_stat = CatalogColumnStat(None, Some(min_sk.toString),
-                          Some(max_sk.toString), Some(BigInt(0)), None, None, None, 1)
-                        col_stats.put(attr_config.name, col_stat)
-                        val id_col_stat = CatalogColumnStat(None, Some(min_id), Some(max_id),
-                          Some(BigInt(0)), None, None, None, 1)
-                        col_stats.put(attr_config.name.stripSuffix("_sk") + "_id", id_col_stat)
-                      }
+                      val col_stat = CatalogColumnStat(None, Some(min_sk.toString),
+                        Some(max_sk.toString), Some(BigInt(0)), None, None, None, 1)
+                      col_stats.put(attr_config.name, col_stat)
+                      val id_col_stat = CatalogColumnStat(None, Some(min_id), Some(max_id),
+                        Some(BigInt(0)), None, None, None, 1)
+                      col_stats.put(attr_config.name.stripSuffix("_sk") + "_id", id_col_stat)
                     }
                   }
                   else if (txn.get.isOK()) {
@@ -657,7 +691,13 @@ object ConcurrencyExperiment {
         }
       }
 
-      tree_cat.commit(txn.get)
+      val success = tree_cat.commit(txn.get)
+
+      max_id_sk.foreach { entry =>
+        table_configs(entry._1).setWatermark(entry._2)
+      }
+
+      success
     }
 
     private def insertFact() : Boolean = {
@@ -673,7 +713,7 @@ object ConcurrencyExperiment {
       dest_fact_table_config.schema.foreach { attr_config =>
         if (attr_config.key.isDefined) {
           val dim_table_config = table_configs(attr_config.key.get)
-          val cardinality = dim_table_config.high_watermark.get.toInt
+          val cardinality = dim_table_config.getWatermark().toInt
           var min_sk = ThreadLocalRandom.current().nextInt(cardinality)
           var max_sk = min_sk
           for (i <- 0 until (insert_config.insert_ratio * dest_fact_table_config.num_rows / 10)
@@ -861,7 +901,7 @@ object ConcurrencyExperiment {
       // get the target dimension table
       val target_table_name = table_generator.genUpdateTable()
       val target_table_config = table_configs(target_table_name)
-      val cardinality = target_table_config.high_watermark.get.toInt
+      val cardinality = target_table_config.getWatermark().toInt
 
       // choose random sk range (business id range) at uniform random
       var min_sk = ThreadLocalRandom.current().nextInt(cardinality)
