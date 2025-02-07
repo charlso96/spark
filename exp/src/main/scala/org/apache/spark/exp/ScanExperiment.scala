@@ -38,9 +38,9 @@ object ScanExperiment {
   misc_config.put("treeAddress", "localhost:9876")
 
   def main(args: Array[String]): Unit = {
-    if (args.size != 2) {
+    if (args.size != 3) {
       print("Usage: spark-class org.apache.spark.exp.ScanExperiment " +
-        "<scanConfig> <catalogType>\n")
+        "<scanConfig> <catalogType> <numFiles>\n")
       return
     }
 
@@ -62,21 +62,24 @@ object ScanExperiment {
     val table_name = scan_config_json.get("tables").get(0).get("name").asText()
 
     val catalog_type = args(1)
+    val num_files = args(2).toInt
 
     catalog_type match {
-      case "delta" => scanDelta(result_output, iters, delta_db, table_name)
-      case "hms" => scanHMS(result_output, iters, hms_db, table_name)
-      case "iceberg" => scanIceberg(result_output, iters, iceberg_db, table_name)
-      case "tree" => scanTree(result_output, iters, tree_db, table_name, tree_address)
+      case "delta" => scanDelta(result_output, iters, delta_db, table_name, num_files)
+      case "hms" => scanHMS(result_output, iters, hms_db, table_name, num_files)
+      case "iceberg" => scanIceberg(result_output, iters, iceberg_db, table_name, num_files)
+      case "tree" => scanTree(result_output, iters, tree_db, table_name, num_files, tree_address)
       case _ => print("Invalid Catalog Type!!!")
     }
 
   }
 
-  private def writeOutput(result_output : String, times : Seq[Long], catalog : String): Unit = {
+  private def writeOutput(result_output : String, times : Seq[Long], catalog : String,
+                          num_files : Int): Unit = {
     val output_writer = new FileWriter(new File(result_output), true)
     times.foreach { time =>
       output_writer.write("{\"catalog\":\"" + catalog + "\", ")
+      output_writer.write("\"num_files\":" + num_files + ", ")
       output_writer.write("\"time\":" + time + "}")
       output_writer.write("\n")
     }
@@ -85,7 +88,7 @@ object ScanExperiment {
   }
 
   private def scanDelta(result_output : String, iters : Int, db_name : String,
-                        table_name : String) : Unit = {
+                        table_name : String, num_files : Int) : Unit = {
 
     val delta_util = new DeltaUtil()
     // dry run
@@ -108,11 +111,11 @@ object ScanExperiment {
       times += Duration.between(start_time, end_time).toNanos()
     }
 
-    writeOutput(result_output, times, "delta")
+    writeOutput(result_output, times, "delta", num_files)
   }
 
   private def scanHMS(result_output : String, iters : Int, db_name : String,
-                        table_name : String) : Unit = {
+                        table_name : String, num_files : Int) : Unit = {
 
     val hms_util = new HMSUtil()
     // dry run
@@ -135,11 +138,11 @@ object ScanExperiment {
       times += Duration.between(start_time, end_time).toNanos()
     }
 
-    writeOutput(result_output, times, "hms")
+    writeOutput(result_output, times, "hms", num_files)
   }
 
   private def scanTree(result_output : String, iters : Int, db_name : String,
-                      table_name : String, tree_address : String) : Unit = {
+                      table_name : String, num_files : Int, tree_address : String) : Unit = {
 
     val tree_util = new TreeUtil(tree_address)
     // dry run
@@ -156,11 +159,11 @@ object ScanExperiment {
       times += Duration.between(start_time, end_time).toNanos()
     }
 
-    writeOutput(result_output, times, "tree")
+    writeOutput(result_output, times, "tree", num_files)
   }
 
   private def scanIceberg(result_output : String, iters : Int, db_name : String,
-                       table_name : String) : Unit = {
+                       table_name : String, num_files : Int) : Unit = {
 
     val iceberg_util = new IcebergUtil()
     // dry run
@@ -187,7 +190,7 @@ object ScanExperiment {
       times += Duration.between(start_time, end_time).toNanos()
     }
 
-    writeOutput(result_output, times, "iceberg")
+    writeOutput(result_output, times, "iceberg", num_files)
   }
 
 }

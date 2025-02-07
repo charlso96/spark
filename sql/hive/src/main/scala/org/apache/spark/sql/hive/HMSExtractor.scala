@@ -685,6 +685,10 @@ private[spark] object HMSExtractor extends Logging {
           rows_per_files.put(table.get("name").asText(), rows_per_file)
         }
     }
+    else if (args.length < 3) {
+      print("Usage: spark-class org.apache.spark.sql.hive.HMSExtractor <dbName> <destFile> " +
+      "<dataConfig> <optional scalFactor>\n" )
+    }
 
     // write the db object
     val db_json = hms_ext.getDBJson(db_name)
