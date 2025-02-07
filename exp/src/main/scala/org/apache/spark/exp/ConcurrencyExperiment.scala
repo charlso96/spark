@@ -236,7 +236,6 @@ class OpGenerator(workload_ratio : String) {
 
 
 object ConcurrencyExperiment {
-  private val sqlParser = new SparkSqlParser()
   val misc_config = scala.collection.mutable.Map.empty[String, String]
   misc_config.put("seed", "0")
   misc_config.put("summaryOutput", "/tmp/summary.txt")
@@ -356,6 +355,7 @@ object ConcurrencyExperiment {
     summaryWriter.write("\"experimentTime\":" + experiment_time / 1000 + ", ")
     summaryWriter.write("\"numThreads\":" + misc_config("numThreads") + "}")
     summaryWriter.write("\n")
+    summaryWriter.flush()
     summaryWriter.close()
     //
     val latencyWriter = new FileWriter(new File(misc_config("latencyOutput")), true)
