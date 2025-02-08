@@ -27,7 +27,6 @@ import scala.collection.mutable.ArrayBuffer
 import scala.io.Source
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import io.netty.util.internal.ThreadLocalRandom
 import org.apache.iceberg.spark.source.SparkTable
 
 import org.apache.spark.sql.catalyst.expressions.Expression
@@ -86,11 +85,12 @@ object ScanRangeExperiment {
       .toArray
     val partition_range = misc_config("partitionRange").toInt
     val num_partitions = dates.length.min(num_files)
-    ThreadLocalRandom.current().setSeed(misc_config("seed").toLong)
+
+    val random = new scala.util.Random(misc_config("seed").toLong)
     // generate min sks.
     val min_sks = ArrayBuffer[Int]()
     for (i <- 0 until (iters + 10)) {
-      min_sks += ThreadLocalRandom.current().nextInt(num_partitions - partition_range)
+      min_sks += random.nextInt(num_partitions - partition_range)
     }
 
     catalog_type match {
