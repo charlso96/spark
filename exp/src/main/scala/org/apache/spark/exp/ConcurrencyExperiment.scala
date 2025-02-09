@@ -49,7 +49,7 @@ object TableType {
   case object Dimension extends TableType
 }
 
-class AttrConfig(attr_json: JsonNode) {
+private class AttrConfig(attr_json: JsonNode) {
   val name : String = attr_json.get("name").asText()
   val data_type : String = attr_json.get("type").asText()
   val key : Option[String] = attr_json.get("cardinality").getNodeType match {
@@ -63,7 +63,7 @@ class AttrConfig(attr_json: JsonNode) {
   val clustered : Boolean = attr_json.get("clustered").asBoolean()
 }
 
-class TableConfig(table_json: JsonNode, scale_factor : String) {
+private class TableConfig(table_json: JsonNode, scale_factor : String) {
   val name: String = table_json.get("name").asText()
   val table_type: TableType = if (table_json.get("type").asText() == "dimension") {
     TableType.Dimension
@@ -110,7 +110,7 @@ class TableConfig(table_json: JsonNode, scale_factor : String) {
   }
 }
 
-class InsertConfig(insert_config_json: JsonNode) {
+private class InsertConfig(insert_config_json: JsonNode) {
   val insert_ratio : Double = insert_config_json.get("insertRatio").asDouble
   val fact_tables : ArrayBuffer[String] = ArrayBuffer[String]()
   val dim_tables : ArrayBuffer[String] = ArrayBuffer[String]()
@@ -123,7 +123,7 @@ class InsertConfig(insert_config_json: JsonNode) {
   }
 }
 
-class OptimizeConfig(optimize_config_json: JsonNode) {
+private class OptimizeConfig(optimize_config_json: JsonNode) {
   val threshold : Int = optimize_config_json.get("threshold").asInt()
   val tables : ArrayBuffer[String] = ArrayBuffer[String]()
   optimize_config_json.get("tables").forEach{ table =>
@@ -131,7 +131,7 @@ class OptimizeConfig(optimize_config_json: JsonNode) {
   }
 }
 
-class DeleteConfig(delete_config_json : JsonNode) {
+private class DeleteConfig(delete_config_json : JsonNode) {
   val date_range : Int = delete_config_json.get("dateRange").asInt()
   val tables : ArrayBuffer[Array[String]] = ArrayBuffer[Array[String]]()
   delete_config_json.get("tables").forEach{ table_list =>
@@ -143,7 +143,7 @@ class DeleteConfig(delete_config_json : JsonNode) {
   }
 }
 
-class UpdateConfig(update_config_json : JsonNode) {
+private class UpdateConfig(update_config_json : JsonNode) {
   val update_ratio : Double = update_config_json.get("updateRatio").asDouble
   val tables : ArrayBuffer[String] = ArrayBuffer[String]()
   update_config_json.get("tables").forEach{ table =>
@@ -151,14 +151,14 @@ class UpdateConfig(update_config_json : JsonNode) {
   }
 }
 
-class ReadConfig(read_config_json : JsonNode) {
+private class ReadConfig(read_config_json : JsonNode) {
   val queries : ArrayBuffer[JsonNode] = ArrayBuffer[JsonNode]()
   read_config_json.get("queries").forEach { query =>
     queries += query
   }
 }
 
-class TableGenerator(insert_config : InsertConfig, optimize_config : OptimizeConfig,
+private class TableGenerator(insert_config : InsertConfig, optimize_config : OptimizeConfig,
                      delete_config : DeleteConfig, update_config : UpdateConfig,
                      read_config : ReadConfig) {
   def genInsertFactTable(): String = {
@@ -187,7 +187,7 @@ class TableGenerator(insert_config : InsertConfig, optimize_config : OptimizeCon
 
 }
 
-class OpGenerator(workload_ratio : String) {
+private class OpGenerator(workload_ratio : String) {
   private val cumulative_weights: List[(Int, Int)] = workload_ratio.split(":").map(_.toInt)
     .toList.zipWithIndex.map { case (value, index) => (index, value) }.scanLeft((0, 0)) {
       case ((_, cumulative), (index, weight)) => (index, cumulative + weight)
@@ -245,7 +245,7 @@ object ConcurrencyExperiment {
   misc_config.put("numThreads", "16")
   // Ratio is optimize:insert:delete:update:read operations in order
   misc_config.put("workloadRatio", "2:288:1:1:292")
-  misc_config.put("scaleFactor", "1G")
+  misc_config.put("scaleFactor", "100T")
   misc_config.put("tableGenBase", "1.5")
   misc_config.put("treeAddress", "localhost:9876")
   misc_config.put("startDate", "1998-01-01")
