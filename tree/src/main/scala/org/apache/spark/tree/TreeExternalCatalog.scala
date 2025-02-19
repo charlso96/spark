@@ -48,6 +48,7 @@ import org.xerial.snappy.Snappy
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.TableIdentifier
+import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
 import org.apache.spark.sql.catalyst.catalog._
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.util.DateFormatter
@@ -779,6 +780,8 @@ private[spark] class TreeTxn(val txnMode : TxnMode,
                              val commitRequest : Option[CommitRequest.Builder] = None) {
   private var aborted : Boolean = false
   private var commit_vid : Option[Long] = None
+  var data_received : Int = 0
+  var data_sent : Int = 0
 
   def setAbort(abort : Boolean): Unit = {
     aborted = abort
@@ -1174,6 +1177,16 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
       case Not(InSet(ExtractAttribute(attr), ConstructableValues(values))) =>
         convert(col_name, is_part_col, convertNotInToAnd(attr, values))
 
+      case UnresolvedFunction(Seq("endswith"), Seq(ExtractAttribute(attr),
+      ConstructableLiteral(value)), _, _, _) =>
+        if (attr.name == col_name && is_part_col) {
+            Some(constructBinaryExpr("obj_id", ExprOpType.EXPR_OP_TYPE_ENDSWITH,
+              value.value.toString))
+        }
+        else {
+          None
+        }
+
       case op @ SpecialBinaryComparison(ExtractAttribute(attr), ConstructableLiteral(value)) =>
         if (attr.name == col_name) {
           if (is_part_col) {
@@ -1382,6 +1395,9 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
         partitions += TreeSerde.toCatalogTablePartition(partBson)
         bufIter.next()
       }
+      if (txn.isDefined) {
+        txn.get.data_received += responseBuf.size
+      }
     })
     if (txn.isDefined && lastResponse.isDefined && lastResponse.get.hasAbort) {
       txn.get.setAbort(lastResponse.get.getAbort)
@@ -1407,6 +1423,9 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
           responseBuf.size - bufIter.dataIdx())
         files += TreeSerde.toCatalogTableFile(fileBson)
         bufIter.next()
+      }
+      if (txn.isDefined) {
+        txn.get.data_received += responseBuf.size
       }
     })
     if (txn.isDefined && lastResponse.isDefined && lastResponse.get.hasAbort) {
@@ -1434,6 +1453,10 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
           responseBuf.size - bufIter.dataIdx())
         files += TreeSerde.toFileStatus(fileBson)
         bufIter.next()
+      }
+
+      if (txn.isDefined) {
+        txn.get.data_received += responseBuf.size
       }
     })
     if (txn.isDefined && lastResponse.isDefined && lastResponse.get.hasAbort) {
@@ -1575,6 +1598,9 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
       if (bufIter.valid()) {
         val tableBson = new RawBsonDocument(responseBuf, bufIter.dataIdx(),
           responseBuf.size - bufIter.dataIdx())
+        if (txn.isDefined) {
+          txn.get.data_received += responseBuf.length
+        }
         TreeSerde.toCatalogTable(tableBson)
       }
       else {
@@ -2252,33 +2278,40 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
         .setWriteValue(ByteString.copyFrom(fileBson.getInternalBuffer, 0,
           fileBson.getPosition))
         .setPathStr(objPath))
-
-      // if file has statistics, merge delta to table and partition at every level
-      if (file.stats.isDefined) {
-        val mergeBson = TreeSerde.toMergeBson(table, file.stats.get)
-        val mergeByteString = ByteString.copyFrom(mergeBson.getInternalBuffer, 0,
-          mergeBson.getPosition)
-        val partitionVals = scala.collection.mutable.Map.empty[String, String]
-        val tablePath = "/" + table.identifier.database.get + "/" + table.identifier.table
-        // update table statistics
-        commitRequest.addWriteSet(Write.newBuilder()
-          .setType(WriteType.WRITE_TYPE_MERGE)
-          .setIsLeaf(false)
-          .setWriteValue(mergeByteString)
-          .setPathStr(tablePath + "/stats"))
-        // update partition statistics
-        tablePartitionSchema.foreach { partitionColumn =>
-          partitionVals.put(partitionColumn.name, file.partitionValues.get(partitionColumn.name)
-            .getOrElse("DEFAULT"))
-          val statsPath = tablePath + TreeSerde.getPartId(table, partitionVals.toMap) + "/stats"
-
-          commitRequest.addWriteSet(Write.newBuilder()
-            .setType(WriteType.WRITE_TYPE_MERGE)
-            .setIsLeaf(false)
-            .setWriteValue(mergeByteString)
-            .setPathStr(statsPath))
-        }
+      if (txn.isDefined) {
+        txn.get.data_sent += fileBson.getPosition
       }
+      // TODO: Uncomment the following to test out the commit time update feature on statistics.
+      // Because this forces taking exclusive lock instead of intention locks on the whole table
+      // (if intention lock is taken, txn will likely aborted during lock upgrade), even if it is
+      // partitioned, it may be extremely unfair for testing multiple-granularity locking.
+      // So we comment this part out for the experimental purposes.
+      // if file has statistics, merge delta to table and partition at every level
+//      if (file.stats.isDefined) {
+//        val mergeBson = TreeSerde.toMergeBson(table, file.stats.get)
+//        val mergeByteString = ByteString.copyFrom(mergeBson.getInternalBuffer, 0,
+//          mergeBson.getPosition)
+//        val partitionVals = scala.collection.mutable.Map.empty[String, String]
+//        val tablePath = "/" + table.identifier.database.get + "/" + table.identifier.table
+//        // update table statistics
+//        commitRequest.addWriteSet(Write.newBuilder()
+//          .setType(WriteType.WRITE_TYPE_MERGE)
+//          .setIsLeaf(false)
+//          .setWriteValue(mergeByteString)
+//          .setPathStr(tablePath + "/stats"))
+//        // update partition statistics
+//        tablePartitionSchema.foreach { partitionColumn =>
+//          partitionVals.put(partitionColumn.name, file.partitionValues.get(partitionColumn.name)
+//            .getOrElse("DEFAULT"))
+//          val statsPath = tablePath + TreeSerde.getPartId(table, partitionVals.toMap) + "/stats"
+//
+//          commitRequest.addWriteSet(Write.newBuilder()
+//            .setType(WriteType.WRITE_TYPE_MERGE)
+//            .setIsLeaf(false)
+//            .setWriteValue(mergeByteString)
+//            .setPathStr(statsPath))
+//        }
+//      }
     }
 
     // if not part of the existing transaction, commit
@@ -2389,3 +2422,4 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
 
   }
 }
+

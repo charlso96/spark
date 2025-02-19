@@ -690,9 +690,13 @@ public final class Grpccatalog {
          */
         EXPR_OP_TYPE_DIV(9),
         /**
-         * <code>EXPR_OP_TYPE_OTHER = 10;</code>
+         * <code>EXPR_OP_TYPE_ENDSWITH = 10;</code>
          */
-        EXPR_OP_TYPE_OTHER(10),
+        EXPR_OP_TYPE_ENDSWITH(10),
+        /**
+         * <code>EXPR_OP_TYPE_OTHER = 11;</code>
+         */
+        EXPR_OP_TYPE_OTHER(11),
         UNRECOGNIZED(-1),
         ;
 
@@ -737,9 +741,13 @@ public final class Grpccatalog {
          */
         public static final int EXPR_OP_TYPE_DIV_VALUE = 9;
         /**
-         * <code>EXPR_OP_TYPE_OTHER = 10;</code>
+         * <code>EXPR_OP_TYPE_ENDSWITH = 10;</code>
          */
-        public static final int EXPR_OP_TYPE_OTHER_VALUE = 10;
+        public static final int EXPR_OP_TYPE_ENDSWITH_VALUE = 10;
+        /**
+         * <code>EXPR_OP_TYPE_OTHER = 11;</code>
+         */
+        public static final int EXPR_OP_TYPE_OTHER_VALUE = 11;
 
 
         public final int getNumber() {
@@ -776,7 +784,8 @@ public final class Grpccatalog {
                 case 7: return EXPR_OP_TYPE_MINUS;
                 case 8: return EXPR_OP_TYPE_MULT;
                 case 9: return EXPR_OP_TYPE_DIV;
-                case 10: return EXPR_OP_TYPE_OTHER;
+                case 10: return EXPR_OP_TYPE_ENDSWITH;
+                case 11: return EXPR_OP_TYPE_OTHER;
                 default: return null;
             }
         }
@@ -28013,37 +28022,38 @@ public final class Grpccatalog {
                         "J_TYPE_NAME_TABLE\020\001\022\033\n\027OBJ_TYPE_NAME_PAR" +
                         "TITION\020\002\022\035\n\031OBJ_TYPE_NAME_FILE_OBJECT\020\003\022" +
                         "\027\n\023OBJ_TYPE_NAME_OTHER\020\004*\034\n\010Wildcard\022\020\n\014" +
-                        "WILDCARD_ANY\020\000*\246\002\n\nExprOpType\022\025\n\021EXPR_OP" +
+                        "WILDCARD_ANY\020\000*\301\002\n\nExprOpType\022\025\n\021EXPR_OP" +
                         "_TYPE_LESS\020\000\022\030\n\024EXPR_OP_TYPE_GREATER\020\001\022\027" +
                         "\n\023EXPR_OP_TYPE_EQUALS\020\002\022\034\n\030EXPR_OP_TYPE_" +
                         "LESS_EQUALS\020\003\022\037\n\033EXPR_OP_TYPE_GREATER_EQ" +
                         "UALS\020\004\022\033\n\027EXPR_OP_TYPE_NOT_EQUALS\020\005\022\025\n\021E" +
                         "XPR_OP_TYPE_PLUS\020\006\022\026\n\022EXPR_OP_TYPE_MINUS" +
                         "\020\007\022\025\n\021EXPR_OP_TYPE_MULT\020\010\022\024\n\020EXPR_OP_TYP" +
-                        "E_DIV\020\t\022\026\n\022EXPR_OP_TYPE_OTHER\020\n*U\n\014ExprB" +
-                        "oolType\022\025\n\021EXPR_BOOL_TYPE_OR\020\000\022\026\n\022EXPR_B" +
-                        "OOL_TYPE_AND\020\001\022\026\n\022EXPR_BOOL_TYPE_NOT\020\002*\313" +
-                        "\001\n\rExprConstType\022\032\n\026EXPR_CONST_TYPE_STRI" +
-                        "NG\020\000\022\027\n\023EXPR_CONST_TYPE_INT\020\001\022\030\n\024EXPR_CO" +
-                        "NST_TYPE_LONG\020\002\022\032\n\026EXPR_CONST_TYPE_DOUBL" +
-                        "E\020\003\022\033\n\027EXPR_CONST_TYPE_BOOLEAN\020\004\022\030\n\024EXPR" +
-                        "_CONST_TYPE_DATE\020\005\022\030\n\024EXPR_CONST_TYPE_NU" +
-                        "LL\020\006*D\n\016BufCompression\022\026\n\022BUF_NO_COMPRES" +
-                        "SION\020\000\022\032\n\026BUF_SNAPPY_COMPRESSION\020\0012\223\004\n\013G" +
-                        "RPCCatalog\022/\n\010StartTxn\022\020.StartTxnRequest" +
-                        "\032\021.StartTxnResponse\022/\n\010Snapshot\022\020.Snapsh" +
-                        "otRequest\032\021.SnapshotResponse\022&\n\005Clone\022\r." +
-                        "CloneRequest\032\016.CloneResponse\0225\n\nGetGarba" +
-                        "ge\022\022.GetGarbageRequest\032\023.GetGarbageRespo" +
-                        "nse\022;\n\014ClearGarbage\022\024.ClearGarbageReques" +
-                        "t\032\025.ClearGarbageResponse\0225\n\nDefineType\022\022" +
-                        ".DefineTypeRequest\032\023.DefineTypeResponse\022" +
-                        "=\n\014ExecuteQuery\022\024.ExecuteQueryRequest\032\025." +
-                        "ExecuteQueryResponse0\001\022)\n\006Commit\022\016.Commi" +
-                        "tRequest\032\017.CommitResponse\0222\n\tPreCommit\022\021" +
-                        ".PreCommitRequest\032\022.PreCommitResponse\0221\n" +
-                        "\010BulkLoad\022\020.BulkLoadRequest\032\021.BulkLoadRe" +
-                        "sponse(\001b\006proto3"
+                        "E_DIV\020\t\022\031\n\025EXPR_OP_TYPE_ENDSWITH\020\n\022\026\n\022EX" +
+                        "PR_OP_TYPE_OTHER\020\013*U\n\014ExprBoolType\022\025\n\021EX" +
+                        "PR_BOOL_TYPE_OR\020\000\022\026\n\022EXPR_BOOL_TYPE_AND\020" +
+                        "\001\022\026\n\022EXPR_BOOL_TYPE_NOT\020\002*\313\001\n\rExprConstT" +
+                        "ype\022\032\n\026EXPR_CONST_TYPE_STRING\020\000\022\027\n\023EXPR_" +
+                        "CONST_TYPE_INT\020\001\022\030\n\024EXPR_CONST_TYPE_LONG" +
+                        "\020\002\022\032\n\026EXPR_CONST_TYPE_DOUBLE\020\003\022\033\n\027EXPR_C" +
+                        "ONST_TYPE_BOOLEAN\020\004\022\030\n\024EXPR_CONST_TYPE_D" +
+                        "ATE\020\005\022\030\n\024EXPR_CONST_TYPE_NULL\020\006*D\n\016BufCo" +
+                        "mpression\022\026\n\022BUF_NO_COMPRESSION\020\000\022\032\n\026BUF" +
+                        "_SNAPPY_COMPRESSION\020\0012\223\004\n\013GRPCCatalog\022/\n" +
+                        "\010StartTxn\022\020.StartTxnRequest\032\021.StartTxnRe" +
+                        "sponse\022/\n\010Snapshot\022\020.SnapshotRequest\032\021.S" +
+                        "napshotResponse\022&\n\005Clone\022\r.CloneRequest\032" +
+                        "\016.CloneResponse\0225\n\nGetGarbage\022\022.GetGarba" +
+                        "geRequest\032\023.GetGarbageResponse\022;\n\014ClearG" +
+                        "arbage\022\024.ClearGarbageRequest\032\025.ClearGarb" +
+                        "ageResponse\0225\n\nDefineType\022\022.DefineTypeRe" +
+                        "quest\032\023.DefineTypeResponse\022=\n\014ExecuteQue" +
+                        "ry\022\024.ExecuteQueryRequest\032\025.ExecuteQueryR" +
+                        "esponse0\001\022)\n\006Commit\022\016.CommitRequest\032\017.Co" +
+                        "mmitResponse\0222\n\tPreCommit\022\021.PreCommitReq" +
+                        "uest\032\022.PreCommitResponse\0221\n\010BulkLoad\022\020.B" +
+                        "ulkLoadRequest\032\021.BulkLoadResponse(\001b\006pro" +
+                        "to3"
         };
         descriptor = com.google.protobuf.Descriptors.FileDescriptor
                 .internalBuildGeneratedFileFrom(descriptorData,

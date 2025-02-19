@@ -53,7 +53,8 @@ enum ExprOpType {
     EXPR_OP_TYPE_MINUS = 7;
     EXPR_OP_TYPE_MULT = 8;
     EXPR_OP_TYPE_DIV = 9;
-    EXPR_OP_TYPE_OTHER = 10;
+    EXPR_OP_TYPE_ENDSWITH = 10;
+    EXPR_OP_TYPE_OTHER = 11;
 }
 
 /*

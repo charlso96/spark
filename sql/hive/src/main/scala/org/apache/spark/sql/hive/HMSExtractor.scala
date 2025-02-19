@@ -85,7 +85,7 @@ private[spark] class HMSClientExt(args: Seq[String], env:
 
   private val sparkConf = toSparkConf()
 
-  private val hadoopConf = SparkHadoopUtil.get.newConfiguration(sparkConf)
+  val hadoopConf = SparkHadoopUtil.get.newConfiguration(sparkConf)
 
   lazy val client = new HiveExternalCatalog(sparkConf, hadoopConf)
 
@@ -688,6 +688,7 @@ private[spark] object HMSExtractor extends Logging {
     else if (args.length < 3) {
       print("Usage: spark-class org.apache.spark.sql.hive.HMSExtractor <dbName> <destFile> " +
       "<dataConfig> <optional scalFactor>\n" )
+      return
     }
 
     // write the db object
@@ -705,10 +706,12 @@ private[spark] object HMSExtractor extends Logging {
         file_writer.write(table_json + "\n")
         val files = hms_ext.listFiles(table)
         files.foreach { file =>
-          val file_stats = hms_ext.extractStats(table, file, file_sizes, rows_per_files)
-          tableStats = hms_ext.mergeStats(table, tableStats, file_stats)
-          val file_json = hms_ext.getFileJson(table, file, Some(file_stats), file_sizes)
-          file_writer.write(file_json + "\n")
+          if (file.getLen > 0) {
+            val file_stats = hms_ext.extractStats(table, file, file_sizes, rows_per_files)
+            tableStats = hms_ext.mergeStats(table, tableStats, file_stats)
+            val file_json = hms_ext.getFileJson(table, file, Some(file_stats), file_sizes)
+            file_writer.write(file_json + "\n")
+          }
         }
       }
       // partitioned table
@@ -776,17 +779,19 @@ private[spark] object HMSExtractor extends Logging {
           var leafStats = CatalogStatistics(BigInt(0), Some(BigInt(0)),
               Map.empty[String, CatalogColumnStat].toMap)
           files.foreach { file =>
-            val file_stats = hms_ext.extractStats(table, file, file_sizes, rows_per_files)
-            cur_part_stats.indices.foreach { i =>
-              cur_part_stats(i) = hms_ext.mergeStats(table, cur_part_stats(i), file_stats)
+            if (file.getLen > 0) {
+              val file_stats = hms_ext.extractStats(table, file, file_sizes, rows_per_files)
+              cur_part_stats.indices.foreach { i =>
+                cur_part_stats(i) = hms_ext.mergeStats(table, cur_part_stats(i), file_stats)
 
+              }
+              tableStats = hms_ext.mergeStats(table, tableStats, file_stats)
+              leafStats = hms_ext.mergeStats(table, leafStats, file_stats)
+
+              val file_json = hms_ext.getFileJson(table, partition, file, Some(file_stats),
+                file_sizes)
+              file_writer.write(file_json + "\n")
             }
-            tableStats = hms_ext.mergeStats(table, tableStats, file_stats)
-            leafStats = hms_ext.mergeStats(table, leafStats, file_stats)
-
-            val file_json = hms_ext.getFileJson(table, partition, file, Some(file_stats),
-              file_sizes)
-            file_writer.write(file_json + "\n")
           }
           // merge partition values into table statistics
           tableStats = hms_ext.mergePartitionVals(table, tableStats, partition.spec)
