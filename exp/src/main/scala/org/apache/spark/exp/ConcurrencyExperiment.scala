@@ -63,6 +63,16 @@ private class AttrConfig(attr_json: JsonNode) {
   val clustered : Boolean = attr_json.get("clustered").asBoolean()
 }
 
+private class OpData() {
+  var latency : Long = 0
+  var data_sent : Long = 0
+  var data_received : Long = 0
+  var op_type = 0
+  var misc = ""
+  var committed = false
+
+}
+
 private class TableConfig(table_json: JsonNode, scale_factor : String) {
   val name: String = table_json.get("name").asText()
   val table_type: TableType = if (table_json.get("type").asText() == "dimension") {
@@ -181,8 +191,9 @@ private class TableGenerator(insert_config : InsertConfig, optimize_config : Opt
     update_config.tables(ThreadLocalRandom.current().nextInt(update_config.tables.length))
   }
 
-  def genReadQuery() : JsonNode = {
-    read_config.queries(ThreadLocalRandom.current().nextInt(read_config.queries.length))
+  def genReadQuery() : (JsonNode, Int) = {
+    val query_idx = ThreadLocalRandom.current().nextInt(read_config.queries.length)
+    (read_config.queries(query_idx), query_idx)
   }
 
 }
@@ -238,12 +249,14 @@ private class OpGenerator(workload_ratio : String) {
 object ConcurrencyExperiment {
   val misc_config = scala.collection.mutable.Map.empty[String, String]
   misc_config.put("seed", "0")
-  misc_config.put("summaryOutput", "/tmp/summary.txt")
-  misc_config.put("latencyOutput", "/tmp/latency.txt")
+  misc_config.put("summaryOutput", "/tmp/summary.json")
+  misc_config.put("opOutput", "/tmp/op.json")
   misc_config.put("dryRunTime", "00:00:10")
   misc_config.put("experimentTime", "00:00:60")
   misc_config.put("numThreads", "16")
-  // Ratio is optimize:insert:delete:update:read operations in order
+  misc_config.put("totalNumThreads", "16")
+  misc_config.put("version", "1")
+  // Ratio is optimize:insertfact:insertdim:delete:read operations in order
   misc_config.put("workloadRatio", "2:288:24:1:292")
   misc_config.put("scaleFactor", "100T")
   misc_config.put("tableGenBase", "1.5")
@@ -301,20 +314,16 @@ object ConcurrencyExperiment {
     val total_num_aborts = new AtomicLong(0)
     val dry_run_time = convertToMilliseconds(misc_config("dryRunTime"))
     val experiment_time = convertToMilliseconds(misc_config("experimentTime"))
-
-    val total_commit_latencies = ArrayBuffer[ArrayBuffer[Long]]()
-    val total_abort_latencies = ArrayBuffer[ArrayBuffer[Long]]()
+    val total_op_data = ArrayBuffer[ArrayBuffer[OpData]]()
     val threads = ArrayBuffer[Thread]()
 
     for (i <- 0 until misc_config("numThreads").toInt) {
-      val commit_latencies = ArrayBuffer[Long]()
-      val abort_latencies = ArrayBuffer[Long]()
-      total_commit_latencies.append(commit_latencies)
-      total_abort_latencies.append(abort_latencies)
+      val op_data_array = ArrayBuffer[OpData]()
+      total_op_data.append(op_data_array)
       threads.append(new Thread(new threadOps(database_name, misc_config.toMap, optimize_config,
         insert_config, delete_config, update_config, read_config, table_configs.toMap, dates,
         table_generator, op_generator, exec_dry_run, exec_experiment, total_num_commits,
-        total_num_aborts, commit_latencies, abort_latencies)))
+        total_num_aborts, op_data_array)))
     }
 
     // execute the dry run
@@ -334,35 +343,37 @@ object ConcurrencyExperiment {
       thread.join()
     }
 
-    val flatTotalCommitLatencies = total_commit_latencies.flatten
-    val flatTotalAbortLatencies = total_abort_latencies.flatten
-    val avgCommitLatency = if (flatTotalCommitLatencies.size > 0) {
-      flatTotalCommitLatencies.sum / flatTotalCommitLatencies.size
-    }
-    else {
-      0
-    }
-
     // print the results
     val summaryWriter = new FileWriter(new File(misc_config("summaryOutput")), true)
     summaryWriter.write("{\"workloadRatio\":\"" + misc_config("workloadRatio") + "\", ")
+    summaryWriter.write("\"totalNumThreads\":" + misc_config("totalNumThreads") + ", ")
+    summaryWriter.write("\"version\":" + misc_config("version") + ", ")
     summaryWriter.write("\"numCommits\":" + total_num_commits + ", ")
     summaryWriter.write("\"numAborts\":" + total_num_aborts + ", ")
     summaryWriter.write("\"throughput\":" +
       (total_num_commits.get().toDouble * 1000) / experiment_time + ", ")
-    summaryWriter.write("\"avgCommitLatency\":" + avgCommitLatency / 1000000 + ", ")
     summaryWriter.write("\"dryRunTime\":" + dry_run_time / 1000 + ", ")
     summaryWriter.write("\"experimentTime\":" + experiment_time / 1000 + ", ")
     summaryWriter.write("\"numThreads\":" + misc_config("numThreads") + "}")
     summaryWriter.write("\n")
     summaryWriter.flush()
     summaryWriter.close()
-    //
-    val latencyWriter = new FileWriter(new File(misc_config("latencyOutput")), true)
-    latencyWriter.write(flatTotalCommitLatencies.mkString("[", ",", "]"))
-    latencyWriter.write(flatTotalAbortLatencies.mkString("[", ",", "]"))
-    latencyWriter.write("\n")
-    latencyWriter.close()
+
+    val opWriter = new FileWriter(new File(misc_config("opOutput")), true)
+    total_op_data.flatten.foreach { op_data : OpData =>
+      opWriter.write("{\"workloadRatio\":\"" + misc_config("workloadRatio") + "\", ")
+      opWriter.write("\"totalNumThreads\":" + misc_config("totalNumThreads") + ", ")
+      opWriter.write("\"version\":" + misc_config("version") + ", ")
+      opWriter.write("\"latency\":" + op_data.latency + ", ")
+      opWriter.write("\"dataSent\":" + op_data.data_sent + ", ")
+      opWriter.write("\"dataReceived\":" + op_data.data_received + ", ")
+      opWriter.write("\"opType\":" + op_data.op_type + ", ")
+      opWriter.write("\"misc\":\"" + op_data.misc + "\", ")
+      opWriter.write("\"committed\":" + op_data.committed + "}")
+      opWriter.write("\n")
+    }
+    opWriter.flush()
+    opWriter.close()
 
   }
 
@@ -373,7 +384,7 @@ object ConcurrencyExperiment {
                           dates: Array[String], table_generator: TableGenerator, op_generator:
                           OpGenerator, exec_dry_run: AtomicBoolean, exec_experiment: AtomicBoolean,
                           total_num_commits: AtomicLong, total_num_aborts: AtomicLong,
-                          commit_latencies: ArrayBuffer[Long], abort_latencies: ArrayBuffer[Long])
+                          op_data_array : ArrayBuffer[OpData])
     extends Runnable {
 
     private val tree_address = misc_config("treeAddress")
@@ -387,11 +398,13 @@ object ConcurrencyExperiment {
 
     override def run(): Unit = {
       while (exec_dry_run.get()) {
-        runCycle(true)
+        runCycle(None)
       }
 
       while (exec_experiment.get()) {
-        runCycle(false)
+        val op_data = new OpData
+        op_data_array.append(op_data)
+        runCycle(Some(op_data))
       }
 
       total_num_commits.addAndGet(num_commits)
@@ -400,28 +413,29 @@ object ConcurrencyExperiment {
     }
 
     // helper function for running a single cycle
-    private def runCycle(is_dry_run : Boolean): Unit = {
+    private def runCycle(op_data : Option[OpData]): Unit = {
       val op = op_generator.genOp()
 
       val startTime = Instant.now()
       val success = op match {
-        case 0 => optimizeOp()
-        case 1 => insertFact()
-        case 2 => insertDim()
-        case 3 => deleteOp()
-        case _ => readOp()
+        case 0 => optimizeOp(op_data)
+        case 1 => insertFact(op_data)
+        case 2 => insertDim(op_data)
+        case 3 => deleteOp(op_data)
+        case _ => readOp(op_data)
       }
       val endTime = Instant.now()
 
       // if not dry run, collect the results
-      if (!is_dry_run) {
+      if (op_data.isDefined) {
+        op_data.get.committed = success
+        op_data.get.op_type = op
+        op_data.get.latency = Duration.between(startTime, endTime).toNanos()
         if (success) {
           num_commits += 1
-          commit_latencies.append(Duration.between(startTime, endTime).toNanos())
         }
         else {
           num_aborts += 1
-          abort_latencies.append(Duration.between(startTime, endTime).toNanos())
         }
       }
     }
@@ -431,7 +445,7 @@ object ConcurrencyExperiment {
       tree_cat.commit(txn.get)
     }
 
-    private def optimizeOp(): Boolean = {
+    private def optimizeOp(op_data : Option[OpData]): Boolean = {
       val read_txn = tree_cat.startTransaction(TxnMode.TXN_MODE_READ_ONLY)
       val write_txn = tree_cat.startTransaction(TxnMode.TXN_MODE_READ_WRITE)
 
@@ -484,11 +498,18 @@ object ConcurrencyExperiment {
         tree_cat.addFiles(target_table, new_files, write_txn)
       }
 
+      if (op_data.isDefined) {
+        op_data.get.data_sent += read_txn.get.data_sent
+        op_data.get.data_received += read_txn.get.data_received
+        op_data.get.data_sent += write_txn.get.data_sent
+        op_data.get.data_received += write_txn.get.data_received
+      }
+
       tree_cat.commit(write_txn.get)
 
     }
 
-    private def insertFact() : Boolean = {
+    private def insertFact(op_data : Option[OpData]) : Boolean = {
       val txn = tree_cat.startTransaction(TxnMode.TXN_MODE_READ_WRITE)
       // randomly choose a fact table, using the table generator
       val dest_fact_table_name = table_generator.genInsertFactTable()
@@ -637,10 +658,15 @@ object ConcurrencyExperiment {
         tree_cat.addFiles(dest_fact_table, fact_table_files, txn)
       }
 
+      if (op_data.isDefined) {
+        op_data.get.data_sent += txn.get.data_sent
+        op_data.get.data_received += txn.get.data_received
+      }
+
       tree_cat.commit(txn.get)
     }
 
-    private def insertDim() : Boolean = {
+    private def insertDim(op_data : Option[OpData]) : Boolean = {
       // generate dimension tables
       val dest_dim_table_names = table_generator.genInsertDimTables()
       // increment the identity sk as an independent transaction first
@@ -859,10 +885,15 @@ object ConcurrencyExperiment {
         table_configs(entry._1).setWatermark(entry._2)
       }
 
+      if (op_data.isDefined) {
+        op_data.get.data_sent += txn.get.data_sent
+        op_data.get.data_received += txn.get.data_received
+      }
+
       success
     }
 
-    private def deleteOp(): Boolean = {
+    private def deleteOp(op_data : Option[OpData]): Boolean = {
       val txn = tree_cat.startTransaction(TxnMode.TXN_MODE_READ_WRITE)
       val target_table_names = table_generator.genDeleteTable()
 
@@ -891,13 +922,18 @@ object ConcurrencyExperiment {
 
       }
 
+      if (op_data.isDefined) {
+        op_data.get.data_sent += txn.get.data_sent
+        op_data.get.data_received += txn.get.data_received
+      }
+
       tree_cat.commit(txn.get)
     }
 
-    private def readOp(): Boolean = {
+    private def readOp(op_data : Option[OpData]): Boolean = {
       val txn = tree_cat.startTransaction(TxnMode.TXN_MODE_READ_ONLY)
       val query_config = table_generator.genReadQuery()
-      val table_jsons = query_config.elements().next()
+      val table_jsons = query_config._1.elements().next()
       table_jsons.forEach{ table_json =>
         // if json is simply a string, it specifies a dimension table
         if (table_json.getNodeType() == JsonNodeType.STRING) {
@@ -934,6 +970,12 @@ object ConcurrencyExperiment {
 
         }
 
+      }
+
+      if (op_data.isDefined) {
+        op_data.get.misc = query_config._2.toString
+        op_data.get.data_sent += txn.get.data_sent
+        op_data.get.data_received += txn.get.data_received
       }
 
       tree_cat.commit(txn.get)

@@ -23,6 +23,7 @@ import java.nio.ByteBuffer
 import scala.collection.immutable
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
+import scala.util.matching.Regex
 
 import com.google.protobuf.ByteString
 import io.grpc.ManagedChannel
@@ -59,10 +60,71 @@ import org.apache.spark.tree.grpc.Grpccatalog.Predicate
 import org.apache.spark.tree.grpc.GRPCCatalogGrpc
 import org.apache.spark.unsafe.types.UTF8String
 
+
 // custom serde that should be much faster than jackson
 private[spark] object TreeSerde {
   private val jsonWriterSetting : JsonWriterSettings = JsonWriterSettings.builder().
     outputMode(JsonMode.RELAXED).build()
+
+  private implicit val formats = Serialization.formats(NoTypeHints) + new HiveURISerializer +
+    new HiveDataTypeSerializer + new HiveMetadataSerializer + new HiveStructTypeSerializer
+
+  private class HiveURISerializer extends CustomSerializer[URI](format =>
+    (
+      {
+        case JString(s) => URI.create(s)
+        case JNull => null
+      },
+      { case x: URI =>
+        JString(x.toString)
+      }
+    )
+  )
+
+  private class HiveDataTypeSerializer extends CustomSerializer[DataType](format =>
+    (
+      {
+        case JObject(o) => DataType.parseDataType(JObject(o))
+        case JNull => null
+      },
+      { case x: DataType =>
+        x.jsonValue
+      }
+    )
+  )
+
+  private class HiveStructTypeSerializer extends CustomSerializer[StructType](format =>
+    (
+      {
+        case JObject(o) => DataType.parseDataType(JObject(o)).asInstanceOf[StructType]
+        case JNull => null
+      },
+      { case x: StructType =>
+        x.jsonValue
+      }
+    )
+  )
+
+  private class HiveMetadataSerializer extends CustomSerializer[Metadata](format =>
+    (
+      {
+        case JObject(o) => Metadata.fromJObject(JObject(o))
+        case JNull => null
+      },
+      { case x: Metadata =>
+        Metadata.toJsonValue(x)
+      }
+    )
+  )
+
+  // serializer for CatalogTable
+  def toBson(table : CatalogTable): RawBsonDocument = {
+    val table_prefix = "{\"meta\": {\"paths\": [\"/" + table.identifier.database.get +
+      "/" + table.identifier.table + "\"], }, \"val\": {\"obj_type\": \"table\", "
+    val json_brace : Regex = "\\{".r
+    val table_json = Serialization.write(table)
+    RawBsonDocument.parse(json_brace.replaceFirstIn(table_json, table_prefix) + "}")
+  }
 
   // serializer for CatalogTablePartition
   def toBson(objPath : String, table : CatalogTable,
@@ -804,8 +866,7 @@ private[spark] class TreeTxn(val txnMode : TxnMode,
 private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
                                          channelOption : Option[ManagedChannel] = None)
   extends Logging {
-  private implicit val formats = Serialization.formats(NoTypeHints) + new HiveURISerializer +
-    new HiveDataTypeSerializer + new HiveMetadataSerializer + new HiveStructTypeSerializer
+
   private val addressPort = address.split(":")
   private val channel = channelOption.getOrElse(
     ManagedChannelBuilder.forAddress(addressPort(0), addressPort(1).toInt)
@@ -2420,6 +2481,39 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
       None
     }
 
+  }
+
+  def alterTable(table : CatalogTable, txn : Option[TreeTxn] = None): Option[Boolean] = {
+    val newTxn = {
+      if (txn.isDefined) {
+        txn
+      }
+      else {
+        startTransaction(TxnMode.TXN_MODE_READ_WRITE)
+      }
+    }
+
+    val commitRequest = newTxn.get.commitRequest.get
+    val objPath = "/" + table.identifier.database.get + "/" + table.identifier.table
+    val raw_bson = TreeSerde.toBson(table)
+    val byte_array = raw_bson.getByteBuffer.array()
+
+    commitRequest.addWriteSet(Write.newBuilder()
+      .setType(WriteType.WRITE_TYPE_UPDATE)
+      .setIsLeaf(false)
+      .setWriteValue(ByteString.copyFrom(byte_array, 0, byte_array.size))
+      .setPathStr(objPath))
+    if (txn.isDefined) {
+      txn.get.data_sent += byte_array.size
+    }
+
+    // if not part of the existing transaction, commit
+    if (txn.isEmpty) {
+      Some(commit(newTxn.get))
+    }
+    else {
+      None
+    }
   }
 }
 

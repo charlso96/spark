@@ -625,7 +625,6 @@ private[hive] class HiveClientImpl(
         it.remove()
       }
     }
-
     // set new schema table properties
     schemaProps.foreach { case (k, v) => oldTable.setProperty(k, v) }
 

@@ -88,7 +88,6 @@ private[spark] class HMSClientExt(args: Seq[String], env:
   val hadoopConf = SparkHadoopUtil.get.newConfiguration(sparkConf)
 
   lazy val client = new HiveExternalCatalog(sparkConf, hadoopConf)
-
   private class HiveURISerializer extends CustomSerializer[URI](format =>
     (
       {
