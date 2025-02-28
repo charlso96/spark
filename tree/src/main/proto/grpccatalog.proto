@@ -420,5 +420,3 @@ service GRPCCatalog {
     rpc PreCommit(PreCommitRequest) returns (PreCommitResponse);
     rpc BulkLoad(stream BulkLoadRequest) returns (BulkLoadResponse);
 }
-
-

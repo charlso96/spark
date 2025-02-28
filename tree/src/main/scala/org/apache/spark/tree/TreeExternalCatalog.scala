@@ -2516,4 +2516,3 @@ private[spark] class TreeExternalCatalog(address : String = "localhost:9876",
     }
   }
 }
-
