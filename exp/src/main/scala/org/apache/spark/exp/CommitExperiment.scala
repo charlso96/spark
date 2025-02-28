@@ -43,7 +43,7 @@ object CommitExperiment {
   misc_config.put("summaryOutput", "/tmp/commit-summary.json")
   misc_config.put("latencyOutput", "/tmp/commit-latency.json")
   misc_config.put("experimentIters", "500")
-  misc_config.put("experimentTime", "00:01:00")
+  misc_config.put("experimentTime", "00:05:00")
   misc_config.put("treeAddress", "localhost:9876")
 
   private def convertToMilliseconds(time : String): Int = {
@@ -57,7 +57,7 @@ object CommitExperiment {
   def main(args: Array[String]): Unit = {
     if (args.size != 2) {
       print("Usage: spark-class org.apache.spark.exp.CommitExperiment " +
-        "<scanConfig> <catalogType>\n")
+        "<commitConfig> <catalogType>\n")
       return
     }
 

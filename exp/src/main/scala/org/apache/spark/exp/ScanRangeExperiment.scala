@@ -39,13 +39,13 @@ import org.apache.spark.sql.delta.catalog.DeltaTableV2
 import org.apache.spark.sql.execution.SparkSqlParser
 import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, SparkExpressionConverter}
 
-object ParallelScanRangeExperiment {
+object ScanRangeExperiment {
   private val sql_parser = new ThreadLocal[SparkSqlParser]() {
     override def initialValue(): SparkSqlParser = new SparkSqlParser()
   }
 
   val misc_config = scala.collection.mutable.Map.empty[String, String]
-  misc_config.put("resultOutput", "/tmp/scanexperiment.json")
+  misc_config.put("resultOutput", "/tmp/scanrange.json")
   misc_config.put("experimentIters", "100")
   misc_config.put("treeAddress", "localhost:9876")
   misc_config.put("startDate", "1998-01-01")
@@ -53,7 +53,7 @@ object ParallelScanRangeExperiment {
   misc_config.put("partitionRange", "7")
   misc_config.put("seed", "0")
   misc_config.put("numCores", Runtime.getRuntime.availableProcessors().toString)
-  misc_config.put("numFiles", "1")
+  misc_config.put("numFiles", "50")
 
   def main(args: Array[String]): Unit = {
     if (args.size != 2) {

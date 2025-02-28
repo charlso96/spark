@@ -26,12 +26,11 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 import java.util.concurrent.ThreadLocalRandom
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong}
-import java.util.concurrent.locks.ReentrantReadWriteLock
 
 import scala.collection.mutable.ArrayBuffer
 import scala.io.Source
 
-import com.fasterxml.jackson.databind.{JsonNode, ObjectMapper}
+import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.JsonNodeType
 
 import org.apache.spark.sql.catalyst.catalog.{CatalogColumnStat, CatalogStatistics, CatalogStorageFormat, CatalogTable, CatalogTableFile, CatalogTypes}
@@ -42,163 +41,6 @@ import org.apache.spark.tree.TreeExternalCatalog
 import org.apache.spark.tree.grpc.Grpccatalog.LockMode
 import org.apache.spark.tree.grpc.Grpccatalog.TxnMode
 
-
-sealed trait TableType
-object TableType {
-  case object Fact extends TableType
-  case object Dimension extends TableType
-}
-
-private class AttrConfig(attr_json: JsonNode) {
-  val name : String = attr_json.get("name").asText()
-  val data_type : String = attr_json.get("type").asText()
-  val key : Option[String] = attr_json.get("cardinality").getNodeType match {
-    case JsonNodeType.STRING => Some(attr_json.get("cardinality").asText())
-    case _ => None
-  }
-  val cardinality : Option[Long] = attr_json.get("cardinality").getNodeType match {
-    case JsonNodeType.STRING => None
-    case _ => Some(attr_json.get("cardinality").asLong())
-  }
-  val clustered : Boolean = attr_json.get("clustered").asBoolean()
-}
-
-private class OpData() {
-  var latency : Long = 0
-  var data_sent : Long = 0
-  var data_received : Long = 0
-  var op_type = 0
-  var misc = ""
-  var committed = false
-
-}
-
-private class TableConfig(table_json: JsonNode, scale_factor : String) {
-  val name: String = table_json.get("name").asText()
-  val table_type: TableType = if (table_json.get("type").asText() == "dimension") {
-    TableType.Dimension
-  }
-  else {
-    TableType.Fact
-  }
-  val partition_schema : Array[AttrConfig] = deSerSchema(table_json.get("partitionSchema"))
-  val schema : Array[AttrConfig] = deSerSchema(table_json.get("schema"))
-  val bytes_per_row : Long = 4*(partition_schema.length + schema.length)
-  val num_rows : Long = table_json.get("scaling").get(scale_factor).asLong()
-
-  val business_id : Option[AttrConfig] = schema.find{ attr_config => attr_config.name.
-    endsWith("_id") && attr_config.clustered }
-  val sk : Option[AttrConfig] = schema.find{ attr_config => attr_config.name.
-    endsWith("sk") && attr_config.clustered }
-  private var high_watermark : Long = num_rows
-  private val lock = new ReentrantReadWriteLock()
-
-  def setWatermark(new_watermark: Long): Unit = {
-    lock.writeLock().lock()
-    try {
-      high_watermark = high_watermark.max(new_watermark)
-    } finally {
-      lock.writeLock().unlock()
-    }
-  }
-
-  def getWatermark(): Long = {
-    lock.readLock().lock()
-    try {
-      high_watermark
-    } finally {
-      lock.readLock().unlock()
-    }
-  }
-
-  private def deSerSchema(schema_json : JsonNode) : Array[AttrConfig] = {
-    val schema = ArrayBuffer[AttrConfig]()
-    schema_json.forEach { attr_json =>
-      schema += new AttrConfig(attr_json)
-    }
-    schema.toArray
-  }
-}
-
-private class InsertConfig(insert_config_json: JsonNode) {
-  val insert_ratio : Double = insert_config_json.get("insertRatio").asDouble
-  val fact_tables : ArrayBuffer[String] = ArrayBuffer[String]()
-  val dim_tables : ArrayBuffer[String] = ArrayBuffer[String]()
-  insert_config_json.get("factTables").forEach { table =>
-    fact_tables += table.asText()
-  }
-  insert_config_json.get("dimensionTables").forEach { table =>
-    dim_tables += table.asText()
-  }
-}
-
-private class OptimizeConfig(optimize_config_json: JsonNode) {
-  val threshold : Int = optimize_config_json.get("threshold").asInt()
-  val tables : ArrayBuffer[String] = ArrayBuffer[String]()
-  optimize_config_json.get("tables").forEach{ table =>
-    tables += table.asText()
-  }
-}
-
-private class DeleteConfig(delete_config_json : JsonNode) {
-  val date_range : Int = delete_config_json.get("dateRange").asInt()
-  val tables : ArrayBuffer[Array[String]] = ArrayBuffer[Array[String]]()
-  delete_config_json.get("tables").forEach{ table_list =>
-    val temp_array = ArrayBuffer[String]()
-    table_list.forEach{ table =>
-      temp_array += table.asText()
-    }
-    tables += temp_array.toArray
-  }
-}
-
-private class ReadConfig(read_config_json : JsonNode) {
-  val queries : ArrayBuffer[JsonNode] = ArrayBuffer[JsonNode]()
-  read_config_json.get("queries").forEach { query =>
-    queries += query
-  }
-}
-
-private class TableGenerator(insert_config : InsertConfig, optimize_config : OptimizeConfig,
-                     delete_config : DeleteConfig, read_config : ReadConfig) {
-  def genInsertFactTable(): String = {
-    insert_config.fact_tables(ThreadLocalRandom.current().nextInt(insert_config.fact_tables.length))
-  }
-
-  def genInsertDimTables(): ArrayBuffer[String] = {
-    insert_config.dim_tables
-  }
-
-  def genOptimizeTable() : String = {
-    optimize_config.tables(ThreadLocalRandom.current().nextInt(optimize_config.tables.length))
-  }
-
-  def genDeleteTable() : Array[String] = {
-    delete_config.tables(ThreadLocalRandom.current().nextInt(delete_config.tables.length))
-  }
-
-  def genReadQuery() : (JsonNode, Int) = {
-    val query_idx = ThreadLocalRandom.current().nextInt(read_config.queries.length)
-    (read_config.queries(query_idx), query_idx)
-  }
-
-}
-
-private class OpGenerator(workload_ratio : String) {
-  private val cumulative_weights: List[(Int, Int)] = workload_ratio.split(":").map(_.toInt)
-    .toList.zipWithIndex.map { case (value, index) => (index, value) }.scanLeft((0, 0)) {
-      case ((_, cumulative), (index, weight)) => (index, cumulative + weight)
-    }.tail
-
-  private val total_weight = cumulative_weights.last._2
-
-  def genOp() : Int = {
-    val random_val = ThreadLocalRandom.current().nextInt(total_weight)
-    cumulative_weights.find {
-      case (_, cumulative) => random_val < cumulative
-    }.map(_._1).get
-  }
-}
 
 //  class TableGenerator(fact_weights : Map[String, Int], dimension_weights : Map[String, Int]) {
 //    val cumulative_fact_weights: List[(String, Int)] = fact_weights.toList.scanLeft(("", 0)) {
@@ -232,10 +74,10 @@ private class OpGenerator(workload_ratio : String) {
 //  }
 
 
-object ConcurrencyExperiment {
+object ConcurrencyExperiment2 {
   val misc_config = scala.collection.mutable.Map.empty[String, String]
-  misc_config.put("summaryOutput", "/tmp/concurrency-summary.json")
-  misc_config.put("opOutput", "/tmp/concurrency-op.json")
+  misc_config.put("summaryOutput", "/tmp/concurrency2-summary.json")
+  misc_config.put("opOutput", "/tmp/concurrency2-op.json")
   misc_config.put("dryRunTime", "00:00:30")
   misc_config.put("experimentTime", "00:05:00")
   misc_config.put("numThreads", "10")
@@ -243,6 +85,7 @@ object ConcurrencyExperiment {
   misc_config.put("version", "1")
   // Ratio is optimize:insertfact:insertdim:delete:read operations in order
   misc_config.put("workloadRatio", "2:288:24:1:315")
+  misc_config.put("dbDist", "2:2:2:2:2")
   misc_config.put("scaleFactor", "100T")
   misc_config.put("treeAddress", "localhost:9876")
   misc_config.put("startDate", "1998-01-01")
@@ -250,7 +93,7 @@ object ConcurrencyExperiment {
 
   def main(args: Array[String]): Unit = {
     if (args.size != 2) {
-      print("Usage: spark-class org.apache.spark.exp.ConcurrencyExperiment " +
+      print("Usage: spark-class org.apache.spark.exp.ConcurrencyExperiment2 " +
         "<dataConfig> <workloadConfig>\n")
       return
     }
@@ -260,12 +103,18 @@ object ConcurrencyExperiment {
     val data_config_json = json_parser.readTree(Source.fromFile(args(0)).mkString)
     // read in workload config
     val workload_config_json = json_parser.readTree(Source.fromFile(args(1)).mkString)
-    val database_name = data_config_json.get("databaseNames").get(0).asText()
+
+    val database_names = ArrayBuffer[String]()
+    data_config_json.get("databaseNames").forEach { database_name =>
+      database_names += database_name.asText()
+    }
+
     // initialize misc config map
     workload_config_json.get("misc").fields().forEachRemaining { config =>
       misc_config.put(config.getKey, config.getValue.asText())
     }
 
+    val db_dist: ArrayBuffer[Int] = ArrayBuffer(misc_config("dbDist").split(":").map(_.toInt): _*)
     val optimize_config = new OptimizeConfig(workload_config_json.get("optimize"))
     val insert_config = new InsertConfig(workload_config_json.get("insert"))
     val delete_config = new DeleteConfig(workload_config_json.get("delete"))
@@ -301,12 +150,16 @@ object ConcurrencyExperiment {
     val threads = ArrayBuffer[Thread]()
 
     for (i <- 0 until misc_config("numThreads").toInt) {
-      val op_data_array = ArrayBuffer[OpData]()
-      total_op_data.append(op_data_array)
-      threads.append(new Thread(new threadOps(database_name, misc_config.toMap, optimize_config,
-        insert_config, delete_config, read_config, table_configs.toMap, dates,
-        table_generator, op_generator, exec_dry_run, exec_experiment, total_num_commits,
-        total_num_aborts, op_data_array)))
+      val idx = db_dist.indexWhere(_ != 0)
+      if (idx != -1) {
+        db_dist(idx) -= 1
+        val op_data_array = ArrayBuffer[OpData]()
+        total_op_data.append(op_data_array)
+        threads.append(new Thread(new threadOps(database_names(idx), misc_config.toMap,
+          optimize_config, insert_config, delete_config, read_config,
+          table_configs.toMap, dates, table_generator, op_generator, exec_dry_run,
+          exec_experiment, total_num_commits, total_num_aborts, op_data_array)))
+      }
     }
 
     // execute the dry run
@@ -1023,7 +876,7 @@ object ConcurrencyExperiment {
   }
 
   private def mergeStats(table : CatalogTable, base : CatalogStatistics,
-                 delta: CatalogStatistics): CatalogStatistics = {
+                         delta: CatalogStatistics): CatalogStatistics = {
     val sizeInBytes = base.sizeInBytes + delta.sizeInBytes
     val rowCount = {
       if (base.rowCount.isDefined && delta.rowCount.isDefined) {
