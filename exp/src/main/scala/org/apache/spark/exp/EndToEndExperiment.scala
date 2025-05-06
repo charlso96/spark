@@ -23,23 +23,24 @@ import java.time.{Duration, Instant}
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.Executors
-
 import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.io.Source
-
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.apache.hadoop.fs.FileSystem
 import org.apache.hadoop.fs.Path
+import org.apache.iceberg.DataFile
 import org.apache.iceberg.spark.source.SparkTable
-
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.connector.catalog.Identifier
+import org.apache.spark.sql.delta.OptimisticTransaction
+import org.apache.spark.sql.delta.actions.AddFile
 import org.apache.spark.sql.delta.catalog.DeltaTableV2
 import org.apache.spark.sql.execution.SparkSqlParser
 import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, SparkExpressionConverter}
+import org.apache.spark.util.SystemClock
 
-object ScanRangeExperiment {
+object EndToEndExperiment {
   private val sql_parser = new ThreadLocal[SparkSqlParser]() {
     override def initialValue(): SparkSqlParser = new SparkSqlParser()
   }
@@ -166,7 +167,7 @@ object ScanRangeExperiment {
   private def scanDelta(result_output : String, iters : Int, db_name : String,
                         table_name : String, partition_name : String, num_files : Int,
                         partition_range : Int, min_sks : Seq[Int], num_cores : Int) : Unit = {
-
+    implicit val clock: SystemClock = new SystemClock()
     val delta_util = new DeltaUtil()
     // dry run
     for (i <- 0 until 10) {
@@ -176,6 +177,13 @@ object ScanRangeExperiment {
       val baseRelation = deltaTable.asInstanceOf[DeltaTableV2].toBaseRelation
         .asInstanceOf[HadoopFsRelation]
       val deltaPartitions = baseRelation.location.listFiles(filters, Seq.empty)
+
+      val blah = deltaTable.asInstanceOf[DeltaTableV2]
+      val txn = new OptimisticTransaction(blah.deltaLog, blah.snapshot)
+      val actions =
+      txn.commit()
+      val addFile = AddFile()
+
     }
 
     // actual experiment
@@ -234,9 +242,9 @@ object ScanRangeExperiment {
   }
 
   private def scanParallelHMS(result_output : String, iters : Int, db_name : String,
-                      table_name : String, partition_name : String, num_files : Int,
-                      partition_range : Int, min_sks : Seq[Int], num_cores : Int,
-                      thread_pool : ExecutionContext) : Unit = {
+                              table_name : String, partition_name : String, num_files : Int,
+                              partition_range : Int, min_sks : Seq[Int], num_cores : Int,
+                              thread_pool : ExecutionContext) : Unit = {
 
     val hms_util = new HMSUtil()
 
@@ -259,9 +267,9 @@ object ScanRangeExperiment {
       val partition_groups = splitIntoBoundaries(0, hms_partitions.length, num_tasks)
       // assign listfiles operation on each group of partitions to a single task
       val tasks = (0 until num_tasks).map(j => Future {
-          for (k <- partition_groups(j)._1 until partition_groups(j)._2 ) {
-            val hms_files = file_systems(j).listStatus(new Path(hms_partitions(k).location)).toSeq
-          }
+        for (k <- partition_groups(j)._1 until partition_groups(j)._2 ) {
+          val hms_files = file_systems(j).listStatus(new Path(hms_partitions(k).location)).toSeq
+        }
       }(thread_pool))
 
       // scalastyle:off awaitresult
@@ -340,9 +348,9 @@ object ScanRangeExperiment {
   }
 
   private def scanParallelTree(result_output : String, iters: Int, db_table_names: (String, String),
-                       partition_name : String, num_files : Int,
-                       partition_range : Int, min_sks : Seq[Int], tree_address : String,
-                       num_cores : Int, thread_pool : ExecutionContext) : Unit = {
+                               partition_name : String, num_files : Int,
+                               partition_range : Int, min_sks : Seq[Int], tree_address : String,
+                               num_cores : Int, thread_pool : ExecutionContext) : Unit = {
 
     val db_name = db_table_names._1
     val table_name = db_table_names._2
@@ -427,6 +435,14 @@ object ScanRangeExperiment {
 
       val iceberg_table = iceberg_util.iceberg
         .loadTable(Identifier.of(Array(db_name), table_name)).asInstanceOf[SparkTable]
+
+
+      val t = iceberg_table.table().newTransaction()
+      t.newAppend().appendFile(new DataFile()).commit()
+
+      // commit all the changes to the table
+      t.commitTransaction()
+
       val iceberg_plan_files = iceberg_table.table().newScan().filter(filters).planFiles()
       iceberg_plan_files.forEach { plan_file =>
         val file = plan_file.file()
@@ -445,6 +461,8 @@ object ScanRangeExperiment {
       val iceberg_plan_files = iceberg_table.table().newScan().filter(filters).planFiles()
       iceberg_plan_files.forEach { plan_file =>
         val file = plan_file.file()
+
+        // copy fields of datafile to a new basic datafile.
       }
       val end_time = Instant.now()
       times += Duration.between(start_time, end_time).toNanos()

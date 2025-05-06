@@ -26,6 +26,7 @@ import java.util.concurrent.ThreadLocalRandom
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong}
 
 import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable.HashSet
 import scala.io.Source
 
 import com.fasterxml.jackson.databind.ObjectMapper
@@ -48,8 +49,9 @@ object BreadthDepthExperiment {
   misc_config.put("version", "1")
   // Ratio is read:write operations in order
   misc_config.put("workloadRatio", "50:50")
-  misc_config.put("selectivity", "0.05")
-  misc_config.put("fanOut", "2")
+  misc_config.put("selectivity", "0.02")
+  misc_config.put("fanOut", "5")
+  misc_config.put("numPredAttr", "2")
   misc_config.put("insertRatio", "0.0001")
   misc_config.put("scaleFactor", "100T")
   misc_config.put("treeAddress", "localhost:9876")
@@ -119,6 +121,8 @@ object BreadthDepthExperiment {
     summaryWriter.write("\"dryRunTime\":" + dry_run_time / 1000 + ", ")
     summaryWriter.write("\"experimentTime\":" + experiment_time / 1000 + ", ")
     summaryWriter.write("\"fanOut\":" + misc_config("fanOut") + ", ")
+    summaryWriter.write("\"selectivity\":" + misc_config("selectivity") + ", ")
+    summaryWriter.write("\"numPredAttr\":" + misc_config("numPredAttr") + ", ")
     summaryWriter.write("\"height\":" + (table_config.partition_schema.length + 1) + ", ")
     summaryWriter.write("\"numThreads\":" + misc_config("numThreads") + "}")
     summaryWriter.write("\n")
@@ -129,6 +133,8 @@ object BreadthDepthExperiment {
     total_op_data.flatten.foreach { op_data : OpData =>
       opWriter.write("{\"workloadRatio\":\"" + misc_config("workloadRatio") + "\", ")
       opWriter.write("\"totalNumThreads\":" + misc_config("totalNumThreads") + ", ")
+      opWriter.write("\"fanOut\":" + misc_config("fanOut") + ", ")
+      opWriter.write("\"height\":" + (table_config.partition_schema.length + 1) + ", ")
       opWriter.write("\"version\":" + misc_config("version") + ", ")
       opWriter.write("\"latency\":" + op_data.latency + ", ")
       opWriter.write("\"dataSent\":" + op_data.data_sent + ", ")
@@ -169,68 +175,87 @@ object BreadthDepthExperiment {
     private var num_commits = 0
     private var num_aborts = 0
 
+
     // a combined workload generator
     private class WorkloadGenerator() {
       private val insert_ratio = misc_config("insertRatio").toDouble
       private val num_files : Int = misc_config("numFiles").toInt
-      private val partition_cardinalities : Array[Int] = table_config.partition_schema
-        .map{ attr_config =>
-        attr_config.cardinality.getOrElse(misc_config("fanOut").toLong).toInt
+      private val num_pred_attr : Int = misc_config("numPredAttr").toInt
+      private val fan_out_attrs = new ArrayBuffer[AttrConfig]()
+      table_config.partition_schema.foreach{ attr_config =>
+        fan_out_attrs += attr_config
       }
-      private val num_partitions = partition_cardinalities.product
-      // num_partitions prob won't divide num_files evenly
-      private val files_per_partition : Int = num_files / num_partitions
-      private val threshold : Int = (num_files % num_partitions) * (files_per_partition + 1)
-      private val selective_range : Int = (misc_config("selectivity").toDouble * num_files).toInt
+      table_config.schema.foreach { attr_config =>
+        if (attr_config.key.isDefined &&  attr_config.key.get== "fanOut") {
+          fan_out_attrs += attr_config
+        }
+      }
 
-      // first_part file index is divided by partition with an extra file due to remainder
-      private def toPartIdx(file_idx : Int) : Int = {
-        val first_part = math.min(threshold, file_idx)
-        (first_part / (files_per_partition + 1)) + ((file_idx - first_part) / files_per_partition)
-      }
+      private val selectivity = misc_config("selectivity").toDouble
+      private val fan_out = misc_config("fanOut").toInt
+      private val first_attr = table_config.schema.find(attr => attr.clustered &&
+        attr.cardinality.isDefined).get
+      // files per pseudo partition
+      private val files_per_partition = num_files / math.pow(fan_out.toDouble,
+        fan_out_attrs.length).toInt
 
       // Generate min and max file idx
       // Generate min and max partition prefix on partition columns and predicate filter on
       // the first unpartitioned column, which is clustered
       // Turn the filters to array of expressions and return
       def genRangeFilter() : ArrayBuffer[Expression] = {
-        val min_file_idx = ThreadLocalRandom.current().nextInt(num_files - selective_range)
-        val max_file_idx = min_file_idx + selective_range
-        val min_partition_idx = toPartIdx(min_file_idx)
-        val max_partition_idx = toPartIdx(max_file_idx)
-        val min_partition_prefix = computePrefix(min_partition_idx)
-        val max_partition_prefix = computePrefix(max_partition_idx)
+        val rnd = ThreadLocalRandom.current()
+        val pred_attr_idx_set = new HashSet[Int]()
+        val pred_attr_idx = new ArrayBuffer[Int]()
+        while (pred_attr_idx.length < num_pred_attr && num_pred_attr < fan_out_attrs.length) {
+          val next_rand = ThreadLocalRandom.current().nextInt(fan_out_attrs.length)
+          if (!pred_attr_idx_set.contains(next_rand)) {
+            pred_attr_idx += next_rand
+            pred_attr_idx_set += next_rand
+          }
+        }
 
         val filters = ArrayBuffer[Expression]()
-        for (i <- table_config.partition_schema.indices) {
-          val partition_col_name = table_config.partition_schema(i).name
-          val min_idx_str = "%012d".format(min_partition_prefix(i))
-          val max_idx_str = "%012d".format(max_partition_prefix(i))
-          val min_part_pred = f"$partition_col_name >= '$partition_col_name=$min_idx_str'"
-          val max_part_pred = f"$partition_col_name <= '$partition_col_name=$max_idx_str'"
-          filters.append(sqlParser.parseExpression(min_part_pred))
-          filters.append(sqlParser.parseExpression(max_part_pred))
+        var cur_selectivity = selectivity
+        pred_attr_idx.foreach{ attr_idx =>
+          val part_range = math.ceil(cur_selectivity * fan_out).toInt
+          if (part_range >= 1) {
+            val min_idx = rnd.nextInt(fan_out - part_range + 1)
+            val max_idx = min_idx + part_range - 1
+            val min_part_pred = if (attr_idx < table_config.partition_schema.length) {
+              val min_idx_str = "%012d".format(min_idx)
+              f"${fan_out_attrs(attr_idx).name} >= '${fan_out_attrs(attr_idx).name}=$min_idx_str'"
+            }
+            else {
+              f"${fan_out_attrs(attr_idx).name} >= $min_idx"
+            }
+            val max_part_pred = if (attr_idx < table_config.partition_schema.length) {
+              val max_idx_str = "%012d".format(max_idx)
+              f"${fan_out_attrs(attr_idx).name} <= '${fan_out_attrs(attr_idx).name}=$max_idx_str'"
+            }
+            else {
+              f"${fan_out_attrs(attr_idx).name} <= $max_idx"
+            }
+
+            filters.append(sqlParser.parseExpression(min_part_pred))
+            filters.append(sqlParser.parseExpression(max_part_pred))
+            cur_selectivity = cur_selectivity * fan_out / part_range
+          }
         }
 
-        // for more precise selectivity, add predicate filter on the first non-partitioned attribute
-        val first_attr = table_config.schema(0)
-        if (first_attr.clustered && first_attr.cardinality.isDefined) {
-          val attr_cardinality = first_attr.cardinality.get
-          val min_val = min_file_idx * attr_cardinality / num_files
-          val max_val = (max_file_idx + 1) * attr_cardinality / num_files - 1
-          val min_pred = f"${first_attr.name} >= $min_val"
-          val max_pred = f"${first_attr.name} <= $max_val"
-          filters.append(sqlParser.parseExpression(min_pred))
-          filters.append(sqlParser.parseExpression(max_pred))
-        }
-
+        val attr_cardinality = first_attr.cardinality.get
+        val attr_range = (attr_cardinality * cur_selectivity).toInt
+        val min_val = rnd.nextInt(attr_cardinality.toInt - attr_range + 1)
+        val min_pred = f"${first_attr.name} >= $min_val"
+        val max_pred = f"${first_attr.name} <= ${min_val + attr_range}"
+        filters.append(sqlParser.parseExpression(min_pred))
+        filters.append(sqlParser.parseExpression(max_pred))
         filters
       }
 
       def genInsertFiles(table : CatalogTable) : ArrayBuffer[CatalogTableFile] = {
-        val file_idx = ThreadLocalRandom.current().nextInt(num_files)
-        val partition_idx = toPartIdx(file_idx)
-        val partition_prefix = computePrefix(partition_idx)
+        // file index within partition
+        val file_idx = ThreadLocalRandom.current().nextInt(files_per_partition)
 
         // column statistics
         val col_stats = scala.collection.mutable.Map.empty[String, CatalogColumnStat]
@@ -238,10 +263,16 @@ object BreadthDepthExperiment {
           // for this experiment, we assume that clustered attribute is an integer
           if (attr_config.clustered && attr_config.cardinality.isDefined) {
             val attr_cardinality = attr_config.cardinality.get
-            val min_val = file_idx * attr_cardinality / num_files
-            val max_val = (file_idx + 1) * attr_cardinality / num_files - 1
+            val min_val = file_idx * attr_cardinality / files_per_partition
+            val max_val = (file_idx + 1) * attr_cardinality / files_per_partition - 1
 
             val col_stat = CatalogColumnStat(None, Some(min_val.toString), Some(max_val.toString),
+              Some(BigInt(0)), None, None, None, 1)
+            col_stats.put(attr_config.name, col_stat)
+          }
+          else if (attr_config.key.isDefined && attr_config.key.get == "fanOut") {
+            val part_val = ThreadLocalRandom.current().nextInt(fan_out)
+            val col_stat = CatalogColumnStat(None, Some(part_val.toString), Some(part_val.toString),
               Some(BigInt(0)), None, None, None, 1)
             col_stats.put(attr_config.name, col_stat)
           }
@@ -298,7 +329,8 @@ object BreadthDepthExperiment {
 
         val dest_part_spec = scala.collection.mutable.Map[String, String]()
         for (i <- table_config.partition_schema.indices) {
-          dest_part_spec.put(table_config.partition_schema(i).name, partition_prefix(i).toString)
+          val part_val = ThreadLocalRandom.current().nextInt(fan_out)
+          dest_part_spec.put(table_config.partition_schema(i).name, part_val.toString)
         }
         val immutable_dest_part_spec = dest_part_spec.toMap
 
@@ -312,18 +344,6 @@ object BreadthDepthExperiment {
           file_stats.sizeInBytes.toLong, stats = Some(file_stats)))
 
         files
-      }
-
-      private def computePrefix(partition_idx : Int) : ArrayBuffer[Int] = {
-        val prefix = new ArrayBuffer[Int]()
-        var quotient = partition_idx
-        val iter = partition_cardinalities.reverseIterator
-        while (iter.hasNext) {
-          val cardinality = iter.next()
-          prefix += (quotient % cardinality)
-          quotient /= cardinality
-        }
-        prefix.reverse
       }
 
       private def genRandomDecimal(num_digits : Long) : Int = {
@@ -395,13 +415,13 @@ object BreadthDepthExperiment {
         }
       // scan a range of files first
       val filters = workload_generator.genRangeFilter()
-      tree_cat.listFilesByFilter(table, filters, txn, Some(LockMode.LOCK_MODE_NL))
+      val scan_files = tree_cat.listFilesByFilter(table, filters, txn, Some(LockMode.LOCK_MODE_S))
       // generate a file
-      val files = workload_generator.genInsertFiles(table)
+      val insert_files = workload_generator.genInsertFiles(table)
 
       // if the table is partitioned, get the corresponding partition
       if (table.partitionColumnNames.nonEmpty) {
-        files.foreach { file =>
+        insert_files.foreach { file =>
           if (txn.get.isOK()) {
             val partition = tree_cat.getPartition(table, file.partitionValues, txn,
               Some(LockMode.LOCK_MODE_X))
@@ -411,7 +431,7 @@ object BreadthDepthExperiment {
 
       // finally add the file to the corresponding partition
       if (txn.get.isOK()) {
-        tree_cat.addFiles(table, files, txn)
+        tree_cat.addFiles(table, insert_files, txn)
       }
 
       if (op_data.isDefined) {
@@ -428,7 +448,8 @@ object BreadthDepthExperiment {
 
       val table = tree_cat.getTable(database_name, table_name, txn, Some(LockMode.LOCK_MODE_NL))
       val filters = workload_generator.genRangeFilter()
-      tree_cat.listFilesByFilter(table, filters, txn, Some(LockMode.LOCK_MODE_NL))
+
+      val files = tree_cat.listFilesByFilter(table, filters, txn, Some(LockMode.LOCK_MODE_NL))
 
       if (op_data.isDefined) {
         op_data.get.data_sent += txn.get.data_sent
