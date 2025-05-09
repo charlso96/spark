@@ -224,7 +224,7 @@ object EndToEndExperiment {
       delta_txn = Some(delta_table.get.deltaLog.startTransaction())
 
       "{ \"location\" : " + "\"" + delta_table.get.catalogTable.get.location.toString + "\", " +
-        "\"schema\" :" + Serialization.write(delta_table.get.catalogTable.get.schema) + " }"
+        "\"schema\" :" + Serialization.write(delta_table.get.schema()) + " }"
     }
 
     private def appendDelta(file_json : JsonNode) : String = {
