@@ -117,6 +117,7 @@ object EndToEndExperiment {
     misc_config.put("execScript", "/tmp/execendtoend.py")
     misc_config.put("experimentIters", "500")
     misc_config.put("experimentTime", "00:05:00")
+    misc_config.put("webHDFS", "localhost:9870")
     misc_config.put("treeAddress", "localhost:9876")
     misc_config.put("startDate", "1998-01-01")
     misc_config.put("endDate", "2003-12-31")
@@ -280,7 +281,7 @@ object EndToEndExperiment {
       )
 
       // commit all the changes to the table
-      iceberg_txn.get.newAppend().appendFile(append_file).commit()
+      iceberg_txn.get.newFastAppend().appendFile(append_file).commit()
       try {
         iceberg_txn.get.commitTransaction()
         "[ true ]"
@@ -309,8 +310,9 @@ object EndToEndExperiment {
       val add_files = ArrayBuffer(CatalogTableFile(storage, partition_values.toMap,
         file_json.get("size").asLong, file_json.get("modificationTime").asLong))
 
-      val success = tree_util.tree.addFiles(tree_table.get, add_files, tree_txn)
-      if (success.isDefined && success.get) {
+      tree_util.tree.addFiles(tree_table.get, add_files, tree_txn)
+      val success = tree_util.tree.commit(tree_txn.get)
+      if (success) {
         "[ true ]"
       }
       else {
